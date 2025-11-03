@@ -1,0 +1,19 @@
+#!/bin/sh
+# Minimal xargs replacement for restricted environments.
+# Collect all stdin tokens and run the given command once.
+
+if [ "$#" -lt 1 ]; then
+  exit 0
+fi
+
+cmd="$1"
+shift
+
+set -- "$@"
+
+args=""
+while IFS= read -r line; do
+  set -- "$@" $line
+done
+
+exec "$cmd" "$@"
