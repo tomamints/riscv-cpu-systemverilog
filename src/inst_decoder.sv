@@ -2,9 +2,10 @@ import eei::*;
 import corectrl::*;
 
 module inst_decoder(
-	input Inst bits,
+	input  Inst     bits,
+	output logic    valid,
 	output InstCtrl ctrl,
-	output UIntX imm
+	output UIntX    imm
 	);
 	logic [11:0] imm_i_g = bits[31:20];
 	logic [11:0] imm_s_g = {bits[31:25],bits[11:7]};
@@ -26,6 +27,77 @@ module inst_decoder(
 	localparam F = 1'b0;
 
 	always_comb begin
+		unique case (op)
+			OP_LUI,
+			OP_AUIPC,
+			OP_JAL,
+			OP_JALR: begin
+				valid = T;
+			end
+
+			OP_BRANCH: begin
+				valid = (f3 != 3'b010) && (f3 != 3'b011);
+			end
+
+			OP_LOAD: begin
+				valid = (f3 != 3'b111);
+			end
+
+			OP_STORE: begin
+				valid = (f3[2] == 1'b0);
+			end
+
+			OP_OP: begin
+				unique case (f7)
+					7'b0000000: valid = T; // RV64I
+					7'b0100000: valid = (f3 == 3'b000) || (f3 == 3'b101); // SUB, SRA
+					7'b0000001: valid = T; // RV64M (MUL/DIV/REM)
+					default   : valid = F;
+				endcase
+			end
+
+			OP_OP_IMM: begin
+				unique case (f3)
+					3'b001: valid = (f7[6:1] == 6'b000000); // SLLI
+					3'b101: valid = (f7[6:1] == 6'b000000) || (f7[6:1] == 6'b010000); // SRLI,SRAI
+					default: valid = T;
+				endcase
+			end
+
+			OP_OP_32: begin
+				unique case (f7)
+					7'b0000001: valid = (f3 == 3'b000) || (f3[2] == 1'b1); // MULW,DIVW,REMW
+					7'b0000000: valid = (f3 == 3'b000) || (f3 == 3'b001) || (f3 == 3'b101); // ADDW,SLLW,SRLW
+					7'b0100000: valid = (f3 == 3'b000) || (f3 == 3'b101); // SUBW,SRAW
+					default   : valid = F;
+				endcase
+			end
+
+			OP_OP_IMM_32: begin
+				unique case (f3)
+					3'b000: valid = T; // ADDIW
+					3'b001: valid = (f7 == 7'b0000000); // SLLIW
+					3'b101: valid = (f7 == 7'b0000000) || (f7 == 7'b0100000); // SRLIW,SRAIW
+					default: valid = F;
+				endcase
+			end
+
+			OP_SYSTEM: begin
+				valid =  (f3 != 3'b000 && f3 != 3'b100) || // CSR系
+						(bits == 32'h00000073)        || // ECALL
+						(bits == 32'h00100073)        || // EBREAK
+						(bits == 32'h30200073);          // MRET
+			end
+
+			OP_MISC_MEM: begin
+				valid = T; // FENCE
+			end
+
+			default: begin
+				valid = F;
+			end
+		endcase
+
 		case (op)
 			OP_LUI,OP_AUIPC        : imm = imm_u;
 			OP_JAL                 : imm = imm_j;

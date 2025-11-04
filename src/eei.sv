@@ -27,14 +27,21 @@ package eei;
 	localparam logic [6:0] OP_LOAD      = 7'b0000011;
 	localparam logic [6:0] OP_STORE     = 7'b0100011;
 	localparam logic [6:0] OP_SYSTEM    = 7'b1110011;
-	
+	localparam logic [6:0] OP_MISC_MEM  = 7'b0001111;
+
 	typedef enum logic [11:0]{
 		MTVEC = 12'h305,
 		MEPC = 12'h341,
-		MCAUSE = 12'h342
+		MCAUSE = 12'h342,
+		MTVAL = 12'h343
 	} CsrAddr;
 
 	typedef enum UIntX{
+		INSTRUCTION_ADDRESS_MISALIGNED = 0,
+		ILLEGAL_INSTRUCTION = 2,
+		BREAKPOINT = 3,
+		LOAD_ADDRESS_MISALIGNED = 4,
+		STORE_AMO_ADDRESS_MISALIGNED = 6,
 		ENVIRONMENT_CALL_FROM_M_MODE = 11
 	} CsrCause;
 

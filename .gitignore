@@ -6,3 +6,4 @@ results/
 *.hex
 *.txt
 *.log
+obj_dir/

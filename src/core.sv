@@ -19,6 +19,7 @@ module core (
 		Inst bits;
 		InstCtrl ctrl;
 		UIntX imm;
+		ExceptionInfo expt;
 	}exq_type;
 
 
@@ -27,6 +28,7 @@ module core (
 		Inst bits;
 		InstCtrl ctrl;
 		UIntX imm;
+		ExceptionInfo expt;
 		UIntX alu_result;
 		logic[4:0] rs1_addr;
 		UIntX rs1_data;
@@ -43,6 +45,7 @@ module core (
 		UIntX alu_result;
 		UIntX mem_rdata;
 		UIntX csr_rdata;
+		logic raise_trap;
 	}wbq_type;
 
 
@@ -169,11 +172,13 @@ module core (
 	logic ids_valid = if_fifo_rvalid;
 	Addr ids_pc = if_fifo_rdata.addr;
 	Inst ids_inst_bits = if_fifo_rdata.bits;
+	logic ids_inst_valid;
 	InstCtrl ids_ctrl;
 	UIntX ids_imm;
 
 	inst_decoder decoder (
 		.bits (ids_inst_bits),
+		.valid (ids_inst_valid),
 		.ctrl (ids_ctrl),
 		.imm  (ids_imm)
 	);
@@ -186,6 +191,24 @@ module core (
 		exq_wdata.bits = if_fifo_rdata.bits;
 		exq_wdata.ctrl = ids_ctrl;
 		exq_wdata.imm  = ids_imm;
+		// exception
+		exq_wdata.expt = '0;
+		if (!ids_inst_valid) begin
+			//illegal instruction
+			exq_wdata.expt.valid = 1;
+			exq_wdata.expt.cause = ILLEGAL_INSTRUCTION;
+			exq_wdata.expt.value = {{(XLEN-ILEN){1'b0}},ids_inst_bits};
+		end else if (ids_inst_bits == 32'h00000073) begin
+			//ECALL
+			exq_wdata.expt.valid = 1;
+			exq_wdata.expt.cause = ENVIRONMENT_CALL_FROM_M_MODE;
+			exq_wdata.expt.value = 0;
+		end else if (ids_inst_bits == 32'h00100073) begin
+			//EBREAK
+			exq_wdata.expt.valid = 1;
+			exq_wdata.expt.cause = BREAKPOINT;
+			exq_wdata.expt.value = ids_pc;
+		end
 	end
 
 	////////////////EX Stage /////////////////
@@ -339,6 +362,9 @@ module core (
 	logic exs_stall;
 	assign exs_stall = exs_data_hazard || exs_muldiv_stall;
 
+	logic instruction_address_misaligned;
+	logic loadstore_address_misaligned;
+
 	always_comb begin
 		//EX-> MEM
 		exq_rready  = memq_wready && !exs_stall;
@@ -353,6 +379,27 @@ module core (
 		memq_wdata.alu_result = (exs_ctrl.is_muldiv) ? exs_muldiv_result : exs_alu_result;
 		memq_wdata.br_taken = exs_ctrl.is_jump || inst_is_br(exs_ctrl) && exs_brunit_take;
 		memq_wdata.jump_addr = (inst_is_br(exs_ctrl)) ? exs_pc + exs_imm : exs_alu_result & ~1;
+		// exception
+		instruction_address_misaligned = (memq_wdata.br_taken && memq_wdata.jump_addr[1:0] != 2'b00);
+		case (exs_ctrl.funct3[1:0])
+			2'b00 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && 0;
+			2'b01 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[0]   != 1'b0); //H
+			2'b10 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[1:0] != 2'b0);
+			2'b11 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[2:0] != 3'b0);
+			default : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && 0;
+		endcase
+		memq_wdata.expt = exq_rdata.expt;
+		if (!memq_rdata.expt.valid)begin
+			if ( instruction_address_misaligned)begin
+				memq_wdata.expt.valid = 1;
+				memq_wdata.expt.cause = INSTRUCTION_ADDRESS_MISALIGNED;
+				memq_wdata.expt.value = memq_wdata.jump_addr;
+			end else if (loadstore_address_misaligned) begin
+				memq_wdata.expt.valid = 1;
+				memq_wdata.expt.cause = (exs_ctrl.is_load) ? LOAD_ADDRESS_MISALIGNED : STORE_AMO_ADDRESS_MISALIGNED;
+				memq_wdata.expt.value = exs_alu_result;
+			end
+		end
 	end
 
 	////////////MEM Stage ////////////////
@@ -362,6 +409,7 @@ module core (
 	Addr  mems_pc         = memq_rdata.addr;
 	Inst  mems_inst_bits  = memq_rdata.bits;
 	InstCtrl  mems_ctrl   = memq_rdata.ctrl;
+	ExceptionInfo  mems_expt   = memq_rdata.expt;
 	logic[4:0]  mems_rd_addr       = mems_inst_bits[11:7];
 
 	assign control_hazard = mems_valid && (csru_raise_trap || mems_ctrl.is_jump || memq_rdata.br_taken);
@@ -385,7 +433,7 @@ module core (
 	memunit memu (
 		.clk    (clk),
 		.rst    (rst),
-		.valid  (mems_valid),
+		.valid  (mems_valid && !mems_expt.valid),
 		.is_new (mems_is_new),
 		.ctrl   (mems_ctrl),
 		.addr   (memq_rdata.alu_result),
@@ -403,12 +451,13 @@ module core (
 		.rst      (rst),
 		.valid    (mems_valid),
 		.pc       (mems_pc),
+		.inst_bits(mems_inst_bits),
 		.ctrl     (mems_ctrl),
+		.expt_info(mems_expt),
 		.rd_addr  (mems_rd_addr),
 		.csr_addr (mems_inst_bits[31:20]),
-		.rs1      ((mems_ctrl.funct3[2] == 1'b1 && mems_ctrl.funct3[1:0] != 2'b00)
-                  ? { { (XLEN - $bits(memq_rdata.rs1_addr)) {1'b0} }, memq_rdata.rs1_addr }   // rs1を0で拡張
-                  : memq_rdata.rs1_data ),
+		.rs1_addr (memq_rdata.rs1_addr),
+		.rs1_data (memq_rdata.rs1_data),
 		.rdata       (csru_rdata),
 		.raise_trap  (csru_raise_trap),
 		.trap_vector (csru_trap_vector)
@@ -426,6 +475,7 @@ module core (
 		wbq_wdata.alu_result = memq_rdata.alu_result;
 		wbq_wdata.mem_rdata = memu_rdata;
 		wbq_wdata.csr_rdata = csru_rdata;
+		wbq_wdata.raise_trap = csru_raise_trap;
 	end
 
 	//////////WB Stage //////////
@@ -453,13 +503,8 @@ module core (
 		end
 	end
 
-
-
 	always_ff @(posedge clk)begin
-		if (wbs_valid && wbs_ctrl.rwb_en && wbs_rd_addr != 5'd0) begin
-			if (wbs_rd_addr == 3) begin
-				$display("わわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわわWB x3 <= %h @pc=%h", wbs_wb_data, wbs_pc);
-			end
+		if(wbs_valid && wbs_ctrl.rwb_en && !wbq_rdata.raise_trap)begin
 			regfile[wbs_rd_addr] <= wbs_wb_data;
 		end
 	end
@@ -521,7 +566,7 @@ module core (
                 $display("  %h : %h", memq_rdata.addr, memq_rdata.bits);
 				$display("	mem stall : %h", memu_stall);
 				$display("	mem rdata : %h", memu_rdata);
-				if (mems_ctrl.is_csr)begin
+				if (mems_ctrl.is_csr || csru_raise_trap)begin
 					$display(" csr rdata : %h", csru_rdata);
 					$display(" csr trap  : %b", csru_raise_trap);
 					$display(" csr vec   : %h", csru_trap_vector);
@@ -533,7 +578,7 @@ module core (
 			$display("WB ----");
 			if(wbs_valid) begin
 				$display("  %h : %h", wbq_rdata.addr, wbq_rdata.bits);
-				if(wbs_ctrl.rwb_en) begin
+				if(wbs_ctrl.rwb_en && !wbq_rdata.raise_trap) begin
 					$display("  reg[%d] <= %h", wbs_rd_addr, wbs_wb_data);
 				end
 			end

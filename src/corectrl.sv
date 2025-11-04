@@ -25,6 +25,12 @@ package corectrl;
 		logic [6:0] funct7; //命令のfunct7フィールド
 	}InstCtrl;
 
+	typedef struct packed {
+		logic    valid;
+		CsrCause cause;
+		UIntX    value; //mtvalの固有情報
+	} ExceptionInfo;
+
 	function automatic logic inst_is_memop(input InstCtrl ctrl);
 		return (ctrl.itype == INST_S) || ctrl.is_load;
 	endfunction
@@ -32,7 +38,7 @@ package corectrl;
 	function automatic logic inst_is_store(input InstCtrl ctrl);
 		return inst_is_memop(ctrl) && !ctrl.is_load;
 	endfunction
-	
+
 	function automatic logic inst_is_br(input InstCtrl ctrl);
 		return ctrl.itype == INST_B;
 	endfunction
