@@ -13,8 +13,20 @@ package eei;
 	typedef logic signed [31:0] SInt32;
 	typedef logic signed [63:0] SInt64;
 
-	parameter int MEM_DATA_WIDTH = 64;
-	parameter int MEM_ADDR_WIDTH = 16;
+	// memory bus data
+	parameter int MEMBUS_DATA_WIDTH = 64;
+
+	//RAM
+	parameter int RAM_ADDR_WIDTH = 16;
+	parameter int RAM_DATA_WIDTH = 64;
+	parameter Addr MMAP_RAM_BEGIN = Addr'('h8000_0000);
+
+	//ROM
+	parameter int ROM_ADDR_WIDTH = 9;
+	parameter int ROM_DATA_WIDTH = 64;
+	parameter Addr MMAP_ROM_BEGIN = 'h1000;
+	parameter Addr MMAP_ROM_END = MMAP_ROM_BEGIN + 'h3ff;
+
 	localparam logic [6:0] OP_LUI       = 7'b0110111;//localparam→上書きできないように
 	localparam logic [6:0] OP_AUIPC     = 7'b0010111;
 	localparam logic [6:0] OP_OP        = 7'b0110011;
@@ -43,6 +55,7 @@ package eei;
 		LOAD_ADDRESS_MISALIGNED = 4,
 		STORE_AMO_ADDRESS_MISALIGNED = 6,
 		ENVIRONMENT_CALL_FROM_M_MODE = 11
-	} CsrCause;
+		} CsrCause;
+
 
 endpackage : eei

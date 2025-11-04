@@ -4,10 +4,9 @@ import corectrl::*;
 module core (
 	input logic clk,
 	input logic rst,
-	membus_if i_membus,
-	membus_if d_membus
-	);
-
+	i_membus.master i_membus,
+	Membus.master d_membus
+);
 
 	typedef struct packed {
 		logic[XLEN-1:0] addr;
@@ -440,7 +439,7 @@ module core (
 		.rs2    (memq_rdata.rs2_data),
 		.rdata  (memu_rdata),
 		.stall  (memu_stall),
-		.membus (d_membus)
+		.membus (d_membus.master)
 	);
 
 	UIntX csru_rdata;

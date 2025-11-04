@@ -1,38 +1,40 @@
 import eei::*;
 
 module top#(
-	parameter bit MEMORY_FILEPATH_IS_ENV = 1,
-	parameter string MEMORY_FILEPATH     = "MEMORY_FILE_PATH"
+	parameter bit RAM_FILEPATH_IS_ENV = 1,
+	parameter string RAM_FILEPATH     = "RAM_FILE_PATH"
 	)(
 `ifdef TEST_MODE
 	output logic test_success,
 `endif
 	input logic clk,
-	input logic rst
+	input logic rst,
+	input Addr  MMAP_DBG_ADDR
 	);
 
-	//アドレス変換関数 バイト単位→ワード単位
-	function automatic logic [MEM_ADDR_WIDTH-1:0] addr_to_memaddr(
+	//アドレスをデータ単位でのアドレスに変換する RAM用のfunctionにしました
+	function automatic logic [RAM_ADDR_WIDTH-1:0] addr_to_RAMaddr(
 		input logic [XLEN-1:0] addr
 		);
 		//MEM_dATA_WIDTH=32bitn場合は、下位2bitを切り捨ててaddr[11:2]を使う
-		addr_to_memaddr = addr[$clog2(MEM_DATA_WIDTH /8) +: MEM_ADDR_WIDTH];
+		return addr[$clog2(RAM_DATA_WIDTH /8) +: RAM_ADDR_WIDTH];
 	endfunction
 
-	//membus_if インターフェースを作成
+
+	//membus_if インターフェースを作成i
 
 	membus_if #(
-		.DATA_WIDTH(MEM_DATA_WIDTH),
-		.ADDR_WIDTH(MEM_ADDR_WIDTH)
+		.DATA_WIDTH(RAM_DATA_WIDTH),
+		.ADDR_WIDTH(RAM_ADDR_WIDTH)
 	) membus();//メモリ用(slave)
 
-	membus_if #(
+	i_membus #(
 		.DATA_WIDTH(ILEN),
 		.ADDR_WIDTH(XLEN)
 	) i_membus();//命令フェッチ用
 
-	membus_if #(
-		.DATA_WIDTH(MEM_DATA_WIDTH),
+	Membus #(
+		.DATA_WIDTH(MEMBUS_DATA_WIDTH),
 		.ADDR_WIDTH(XLEN)
 	) d_membus();//ロードストア命令
 
@@ -83,12 +85,12 @@ module top#(
 
 		membus.valid = i_membus.valid | d_membus.valid;
 		if (d_membus.valid)begin
-			membus.addr = addr_to_memaddr(d_membus.addr);
+			membus.addr = addr_to_RAMaddr(d_membus.addr);
 			membus.wen  = d_membus.wen;
 			membus.wdata= d_membus.wdata;
 			membus.wmask= d_membus.wmask;
 		end else begin
-			membus.addr = addr_to_memaddr(i_membus.addr);
+			membus.addr = addr_to_RAMaddr(i_membus.addr);
 			membus.wen  = 0;
 			membus.wdata= 'x;
 			membus.wmask= 'x;
@@ -96,11 +98,11 @@ module top#(
 	end
 
 	memory #(
-		.DATA_WIDTH(MEM_DATA_WIDTH),
-		.ADDR_WIDTH(MEM_ADDR_WIDTH),
-		.FILEPATH_IS_ENV(MEMORY_FILEPATH_IS_ENV),
-		.FILEPATH(MEMORY_FILEPATH)
-	) mem (
+		.DATA_WIDTH(RAM_DATA_WIDTH),
+		.ADDR_WIDTH(RAM_ADDR_WIDTH),
+		.FILEPATH_IS_ENV(RAM_FILEPATH_IS_ENV),
+		.FILEPATH(RAM_FILEPATH)
+	) ram (
 		.clk (clk),
 		.rst(rst),
 		.membus(membus.slave)

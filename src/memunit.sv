@@ -11,7 +11,7 @@ module memunit (
 	input UIntX rs2, //ストア命令で書き込むデータ
 	output UIntX rdata, //ロード命令の結果（stall=0の時有効）
 	output logic stall, //メモリアクセス命令が完了していない
-	membus_if.master membus //メモリとのinterface
+	Membus membus //メモリとのinterface
 	);
 
 
@@ -25,11 +25,11 @@ module memunit (
 
 	logic req_wen;
 	Addr req_addr;
-	logic [MEM_DATA_WIDTH-1:0]          req_wdata;
-	logic [(MEM_DATA_WIDTH/8)-1:0]      req_wmask;
+	logic [MEMBUS_DATA_WIDTH-1:0]          req_wdata;
+	logic [(MEMBUS_DATA_WIDTH/8)-1:0]      req_wmask;
 
 	localparam int W = XLEN;
-	logic [MEM_DATA_WIDTH-1:0] D;
+	logic [MEMBUS_DATA_WIDTH-1:0] D;
 	logic sext;
 
 	always_comb begin
@@ -76,7 +76,7 @@ module memunit (
 			2'b11  : rdata = D;
 			default: rdata = 'x;
 		endcase
-			
+
 		//stallの判定
 		case (state)
         	Init:       stall = valid & (is_new && inst_is_memop(ctrl));
