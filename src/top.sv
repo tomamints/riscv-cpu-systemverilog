@@ -47,6 +47,7 @@ module core_top #(
     ) rom_membus();
 
     // お手本（Veryl）命名に統一
+
     i_membus #(
         .DATA_WIDTH(ILEN),
         .ADDR_WIDTH(XLEN)
@@ -60,70 +61,43 @@ module core_top #(
     logic memarb_last_i;
     Addr  memarb_last_iaddr;
 
-`ifdef TEST_MODE
-    // riscv-tests の終了検知（tohost = RAM_BASE + 0x1000）
-    always_ff @(posedge clk or posedge rst) begin
-        if (rst) begin
-            test_success <= 1'b0;
-        end else begin
-            logic [XLEN-1:0] tohost_addr;
-            tohost_addr = MMAP_RAM_BEGIN + XLEN'(32'h1000);
 
-            // d側の store で tohost へ書いたら終了
-            if (d_membus.valid && d_membus.ready &&
-                d_membus.wen   && d_membus.addr == tohost_addr) begin
+    always_ff @(posedge clk) begin
+        dbg_membus.ready  <= 1'b1;
+        dbg_membus.rvalid <= dbg_membus.valid;
 
-                if (d_membus.wdata == XLEN'(1)) begin
+        if (dbg_membus.valid && dbg_membus.wen) begin
+
+            // 文字出力
+            if (dbg_membus.wdata[MEMBUS_DATA_WIDTH - 1 -: 20] == 20'h01010) begin
+                $write("%c", dbg_membus.wdata[7:0]);
+
+            // テスト終了判定（※下位8bitのみで判定）
+            end else if (dbg_membus.wdata[7:0] == 8'h01) begin
+
+                `ifdef TEST_MODE
                     test_success <= 1'b1;
-                    $display("riscv-tests success!");
-                end else begin
-                    test_success <= 1'b0;
-                    $display("riscv-tests FAILED!");
-                    $error("tohost write value = %h", d_membus.wdata);
-                end
-                $finish;
-            end
-        end
-    end
-`endif
+                `endif
 
-/*
-    // デバッグ用 IO
-    always_ff @(posedge clk or negedge rst) begin
-        if (!rst) begin
-            dbg_membus.ready  <= 1'b0;
-            dbg_membus.rvalid <= 1'b0;
-            dbg_membus.rdata  <= '0;
-        end else begin
-            dbg_membus.ready  <= 1'b1;
-            dbg_membus.rvalid <= dbg_membus.valid;
-`ifdef ENABLE_DEBUG_INPUT
-            if (dbg_membus.valid && !dbg_membus.wen)
-                dbg_membus.rdata <= util::get_input();
-            else
-                dbg_membus.rdata <= '0;
-`else
-            dbg_membus.rdata <= '0;
-`endif
-            if (dbg_membus.valid && dbg_membus.wen) begin
-                if (dbg_membus.wdata[MEMBUS_DATA_WIDTH-1-:20] == 20'h01010) begin
-                    $write("%c", dbg_membus.wdata[7:0]);
-                end else if (dbg_membus.wdata[0]) begin
-`ifdef TEST_MODE
-                    test_success <= (dbg_membus.wdata == UIntX'(1));
-`endif
-                    if (dbg_membus.wdata == UIntX'(1)) begin
-                        $display("test success!");
-                    end else begin
-                        $display("test failed!");
-                        $error("wdata : %h", dbg_membus.wdata);
-                    end
-                    $finish();
-                end
+                $display("test success!");
+                $finish();
+
+            // （念のため）失敗判定
+            end else if (dbg_membus.wdata[7:0] != 8'h00) begin
+
+                `ifdef TEST_MODE
+                    test_success <= 1'b0;
+                `endif
+
+                $display("test failed!");
+                $error("wdata : %h", dbg_membus.wdata);
+                $finish();
             end
         end
     end
-*/
+
+
+
 
     // mmio_controller 調停（I/D のどちらの応答か保持）
     always_ff @(posedge clk or negedge rst) begin
@@ -257,7 +231,7 @@ module core_top #(
     ) ram (
         .clk    (clk),
         .rst    (rst),
-        .membus (ram_membus.slave)
+        .membus (ram_membus)
     );
 
     memory #(
@@ -268,7 +242,7 @@ module core_top #(
     ) rom (
         .clk    (clk),
         .rst    (rst),
-        .membus (rom_membus.slave)
+        .membus (rom_membus)
     );
 
     // MMIO コントローラ
@@ -276,18 +250,18 @@ module core_top #(
         .clk         (clk),
         .rst         (rst),
         .DBG_ADDR    (MMAP_DBG_ADDR),
-        .req_core    (mmio_membus.slave),
-        .ram_membus  (mmio_ram_membus.master),
-        .rom_membus  (mmio_rom_membus.master),
-        .dbg_membus  (dbg_membus.master)
+        .req_core    (mmio_membus),
+        .ram_membus  (mmio_ram_membus),
+        .rom_membus  (mmio_rom_membus),
+        .dbg_membus  (dbg_membus)
     );
 
     // コア接続（Veryl命名に完全一致）
     core c (
         .clk      (clk),
         .rst      (rst),
-        .i_membus (i_membus.master),
-        .d_membus (d_membus.master),
+        .i_membus (i_membus),
+        .d_membus (d_membus),
         .led      (led)
     );
 

@@ -1,15 +1,22 @@
-// SystemVerilog version of mmio_controller
-
 import eei::*;
 
+// 1サイクル分のリクエストを保持するレジスタ
+typedef struct packed {
+    logic                           valid;
+    logic [XLEN-1:0]                addr;
+    logic                           wen;
+    logic [MEMBUS_DATA_WIDTH-1:0]   wdata;
+    logic [(MEMBUS_DATA_WIDTH/8)-1:0] wmask;
+} MembusReg;
+
 module mmio_controller (
-    input  logic       clk,
-    input  logic       rst,
-    input  Addr        DBG_ADDR,
-    Membus.slave       req_core,
-    Membus.master      ram_membus,
-    Membus.master      rom_membus,
-    Membus.master      dbg_membus
+    input   logic clk,
+    input   logic rst,
+    input   Addr  DBG_ADDR,
+    Membus.slave  req_core,
+    Membus.master ram_membus,
+    Membus.master rom_membus,
+    Membus.master dbg_membus
 );
 
     typedef enum logic [1:0] {
@@ -19,276 +26,167 @@ module mmio_controller (
         DEBUG
     } Device;
 
-    Membus req_saved();
+    // outstanding リクエスト保持
+    MembusReg   req_saved;
+    Device      last_device;
+    logic       is_requested;  // デバイス側が ready になったかのラッチ
 
-    Device last_device;
-    logic  is_requested;
-
-    function automatic string device_to_string (Device device);
-        case (device)
-            RAM:   return "RAM";
-            ROM:   return "ROM";
-            DEBUG: return "DEBUG";
-            default: return "UNKNOWN";
-        endcase
+    // ---------- ユーティリティ ----------
+    function void reset_membus_master (
+        output logic                           valid,
+        output logic [XLEN-1:0]                addr,
+        output logic                           wen,
+        output logic [MEMBUS_DATA_WIDTH-1:0]   wdata,
+        output logic [(MEMBUS_DATA_WIDTH/8)-1:0] wmask
+    );
+        valid = 1'b0;
+        addr  = '0;
+        wen   = 1'b0;
+        wdata = '0;
+        wmask = '0;
     endfunction
 
-    // ---- masterのリセット ----
-    task automatic reset_all_device_masters ();
-        ram_membus.reset_master();
-        rom_membus.reset_master();
-        dbg_membus.reset_master();
-    endtask
+    function void reset_all_device_masters ();
+        reset_membus_master(ram_membus.valid, ram_membus.addr, ram_membus.wen, ram_membus.wdata, ram_membus.wmask);
+        reset_membus_master(rom_membus.valid, rom_membus.addr, rom_membus.wen, rom_membus.wdata, rom_membus.wmask);
+        reset_membus_master(dbg_membus.valid, dbg_membus.addr, dbg_membus.wen, dbg_membus.wdata, dbg_membus.wmask);
+    endfunction
 
-    function automatic Device get_device (Addr addr);
-        if (DBG_ADDR <= addr && addr <= DBG_ADDR + 7) return DEBUG;
-        if (MMAP_ROM_BEGIN <= addr && addr <= MMAP_ROM_END) return ROM;
+    function Device get_device (input Addr addr);
+        if (DBG_ADDR <= addr && addr <= DBG_ADDR +7) return DEBUG;
+        if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ROM_END)) return ROM;
         if (addr >= MMAP_RAM_BEGIN) return RAM;
         return UNKNOWN;
     endfunction
 
-    // req_core をソースに接続
-    task automatic assign_device_master_from_core;
-        case (get_device(req_core.addr))
+    function void drive_device_master (
+        input  logic                           valid,
+        input  logic [XLEN-1:0]                addr,
+        input  logic                           wen,
+        input  logic [MEMBUS_DATA_WIDTH-1:0]   wdata,
+        input  logic [(MEMBUS_DATA_WIDTH/8)-1:0] wmask
+    );
+        unique case (get_device(addr))
             RAM: begin
-                ram_membus.valid = req_core.valid;
-                ram_membus.addr  = req_core.addr - MMAP_RAM_BEGIN;
-                ram_membus.wen   = req_core.wen;
-                ram_membus.wdata = req_core.wdata;
-                ram_membus.wmask = req_core.wmask;
+                ram_membus.valid = valid;
+                ram_membus.wen   = wen;
+                ram_membus.wdata = wdata;
+                ram_membus.wmask = wmask;
+                ram_membus.addr  = addr - MMAP_RAM_BEGIN;
             end
             ROM: begin
-                rom_membus.valid = req_core.valid;
-                rom_membus.addr  = req_core.addr - MMAP_ROM_BEGIN;
-                rom_membus.wen   = req_core.wen;
-                rom_membus.wdata = req_core.wdata;
-                rom_membus.wmask = req_core.wmask;
+                rom_membus.valid = valid;
+                rom_membus.wen   = wen;
+                rom_membus.wdata = wdata;
+                rom_membus.wmask = wmask;
+                rom_membus.addr  = addr - MMAP_ROM_BEGIN;
             end
             DEBUG: begin
-                dbg_membus.valid = req_core.valid;
-                dbg_membus.addr  = req_core.addr - DBG_ADDR;
-                dbg_membus.wen   = req_core.wen;
-                dbg_membus.wdata = req_core.wdata;
-                dbg_membus.wmask = req_core.wmask;
+                dbg_membus.valid = valid;
+                dbg_membus.wen   = wen;
+                dbg_membus.wdata = wdata;
+                dbg_membus.wmask = wmask;
+                dbg_membus.addr  = addr - DBG_ADDR;
             end
-            default: ;
+            default: ; // UNKNOWN は捨てる
         endcase
-        if (req_core.valid) begin
-            $display("[MMIOC] CORE->%s valid=%b ready=%b addr=%h wen=%b",
-                device_to_string(get_device(req_core.addr)),
-                req_core.valid,
-                req_core.ready,
-                req_core.addr,
-                req_core.wen
-            );
-        end
-    endtask
+    endfunction
 
+    function logic get_device_ready (input Device d);
+        unique case (d)
+            RAM: return ram_membus.ready;
+            ROM: return rom_membus.ready;
+            DEBUG: return dbg_membus.ready;
+            default: return 1'b0;
+        endcase
+    endfunction
 
-    // req_saved をソースに接続
-    task automatic assign_device_master_from_saved;
-        case (get_device(req_saved.addr))
+    function logic get_device_rvalid (input Device d);
+        unique case (d)
+            RAM: return ram_membus.rvalid;
+            ROM: return rom_membus.rvalid;
+            DEBUG: return dbg_membus.rvalid;
+            default: return 1'b0;
+        endcase
+    endfunction
+
+    function void readback_device (
+        input  Device                         d,
+        output logic                          rvalid,
+        output logic [MEMBUS_DATA_WIDTH-1:0]  rdata
+    );
+        rvalid = 1'b0;
+        rdata  = '0;
+        unique case (d)
             RAM: begin
-                ram_membus.valid = req_saved.valid;
-                ram_membus.addr  = req_saved.addr - MMAP_RAM_BEGIN;
-                ram_membus.wen   = req_saved.wen;
-                ram_membus.wdata = req_saved.wdata;
-                ram_membus.wmask = req_saved.wmask;
+                rvalid = ram_membus.rvalid;
+                rdata  = ram_membus.rdata;
             end
             ROM: begin
-                rom_membus.valid = req_saved.valid;
-                rom_membus.addr  = req_saved.addr - MMAP_ROM_BEGIN;
-                rom_membus.wen   = req_saved.wen;
-                rom_membus.wdata = req_saved.wdata;
-                rom_membus.wmask = req_saved.wmask;
+                rvalid = rom_membus.rvalid;
+                rdata  = rom_membus.rdata;
             end
             DEBUG: begin
-                dbg_membus.valid = req_saved.valid;
-                dbg_membus.addr  = req_saved.addr - DBG_ADDR;
-                dbg_membus.wen   = req_saved.wen;
-                dbg_membus.wdata = req_saved.wdata;
-                dbg_membus.wmask = req_saved.wmask;
+                rvalid = dbg_membus.rvalid;
+                rdata  = dbg_membus.rdata;
             end
-            default: ;
+            default: ; // UNKNOWN
         endcase
+    endfunction
+
+    // ---------- combinational: master配線 & コアへの応答 ----------
+    always_comb begin
+        // 1) まず全デバイス出力をクリア
+        reset_all_device_masters();
+
+        // 2) outstanding があればそれをドライブ
         if (req_saved.valid) begin
-            $display("[MMIOC] SAVED->%s valid=%b addr=%h wen=%b",
-                device_to_string(get_device(req_saved.addr)),
+            drive_device_master(
                 req_saved.valid,
                 req_saved.addr,
-                req_saved.wen
+                req_saved.wen,
+                req_saved.wdata,
+                req_saved.wmask
             );
         end
-    endtask
 
-
-
-    // デバイス→req_core 応答接続
-    task automatic assign_device_slave(
-        input Device device
-    );
-        case (device)
-            RAM: begin
-                req_core.rvalid = ram_membus.rvalid;
-                req_core.rdata  = ram_membus.rdata;
-                req_core.ready   = ram_membus.ready;
-            end
-            ROM: begin
-                req_core.rvalid = rom_membus.rvalid;
-                req_core.rdata  = rom_membus.rdata;
-                req_core.ready   = rom_membus.ready;
-            end
-            DEBUG: begin
-                req_core.rvalid = dbg_membus.rvalid;
-                req_core.rdata  = dbg_membus.rdata;
-                req_core.ready  = dbg_membus.ready;
-            end
-            default: begin
-                req_core.rvalid = 1'b0;
-                req_core.rdata  = '0;
-            end
-        endcase
-        $display("[MMIOC] RESP_FROM %s rvalid=%b ready=%b rdata=%h",
-            device_to_string(device),
-            req_core.rvalid,
-            req_core.ready,
-            req_core.rdata
-        );
-    endtask
-
-
-    function automatic logic get_device_ready (Device device);
-        case (device)
-            RAM:    return ram_membus.ready;
-            ROM:    return rom_membus.ready;
-            DEBUG:  return dbg_membus.ready;
-            default:return 1'b0;   // 方針で 1'b1 にしても可
-        endcase
-    endfunction
-
-    function automatic logic get_device_rvalid (Device device);
-        case (device)
-            RAM:    return ram_membus.rvalid;
-            ROM:    return rom_membus.rvalid;
-            DEBUG:  return dbg_membus.rvalid;
-            default:return 1'b0;
-        endcase
-    endfunction
-
-    // ---- comb: req_core への応答面制御
-    always_comb begin
-        req_core.ready  = 1'b0;
+        // 3) コアへの応答
         req_core.rvalid = 1'b0;
         req_core.rdata  = '0;
 
         if (req_saved.valid) begin
-            if (is_requested) begin
-                assign_device_slave(last_device);
-                req_core.ready = get_device_rvalid(last_device);
-            end
-        end else begin
-            req_core.ready = 1'b1;
+            readback_device(last_device, req_core.rvalid, req_core.rdata);
         end
+
+        // 4) ready: outstanding が無い時だけ 1
+        //    （単発リクエスト＝1件滞留方式）
+        req_core.ready = (req_saved.valid == 1'b0);
     end
 
-    // ---- comb: デバイスへの要求面配線
-    always_comb begin
-        reset_all_device_masters();
-        if (req_saved.valid) begin
-            if (is_requested) begin
-                if (get_device_rvalid(last_device)) begin
-                    if (req_core.ready && req_core.valid)
-                        assign_device_master_from_core();
-                end
-            end else begin
-                assign_device_master_from_saved();
-            end
-        end else begin
-            if (req_core.ready && req_core.valid)
-                assign_device_master_from_core();
-        end
-    end
-
-    // ---- seq: リクエスト受け入れ・状態遷移
-    task automatic accept_request ();
-        logic handshake;
-        handshake = req_core.ready && req_core.valid;
-        $display("[MMIOC] ACCEPT_ATTEMPT ready=%b valid=%b handshake=%b addr=%h",
-            req_core.ready,
-            req_core.valid,
-            handshake,
-            req_core.addr
-        );
-        req_saved.valid = handshake;
-        if (handshake) begin
-            last_device    = get_device(req_core.addr);
-            is_requested   = get_device_ready(last_device);
-            req_saved.addr  = req_core.addr;
-            req_saved.wen   = req_core.wen;
-            req_saved.wdata = req_core.wdata;
-            req_saved.wmask = req_core.wmask;
-            $display("[MMIOC] ACCEPT addr=%h device=%s is_req=%b dev_ready=%b dev_rvalid=%b",
-                req_core.addr,
-                device_to_string(last_device),
-                is_requested,
-                get_device_ready(last_device),
-                get_device_rvalid(last_device)
-            );
-        end
-    endtask
-
-    task automatic on_clock ();
-        $display("[MMIOC] ON_CLOCK saved_v=%b is_req=%b req_ready=%b req_valid=%b",
-            req_saved.valid,
-            is_requested,
-            req_core.ready,
-            req_core.valid
-        );
-        if (req_saved.valid) begin
-            if (is_requested) begin
-                if (get_device_rvalid(last_device))
-                    accept_request();
-                else begin
-                    $display("[MMIOC] WAIT_RVALID device=%s dev_rvalid=%b",
-                        device_to_string(last_device),
-                        get_device_rvalid(last_device)
-                    );
-                end
-            end else begin
-                is_requested = get_device_ready(last_device);
-                $display("[MMIOC] PROBE_READY device=%s dev_ready=%b",
-                    device_to_string(last_device),
-                    get_device_ready(last_device)
-                );
-            end
-        end else begin
-            $display("[MMIOC] CALL_ACCEPT_FROM_EMPTY");
-            accept_request();
-        end
-    endtask
-
-    task automatic on_reset ();
-        last_device   = UNKNOWN;
-        is_requested  = 1'b0;
-        req_saved.reset_master(); // ← 名称統一
-    endtask
-
+    // ---------- sequential: ラッチ/クリア ----------
     always_ff @(posedge clk or negedge rst) begin
-        if (!rst) on_reset();
-        else     on_clock();
-    end
+        if (!rst) begin
+            req_saved    <= '{default:'0};
+            last_device  <= UNKNOWN;
+            is_requested <= 1'b0;
+        end else begin
+            // デバイス応答を受け取ったら次サイクルで outstanding をクリア
+            if (req_saved.valid && get_device_rvalid(last_device)) begin
+                req_saved.valid <= 1'b0;
+            end
 
-    always_ff @(posedge clk) begin
-        $display("[MMIOC] STATE saved_v=%b saved_addr=%h last=%s is_req=%b core_v=%b core_rdy=%b core_rvalid=%b core_addr=%h",
-            req_saved.valid,
-            req_saved.addr,
-            device_to_string(last_device),
-            is_requested,
-            req_core.valid,
-            req_core.ready,
-            req_core.rvalid,
-            req_core.addr
-        );
+            // 新規リクエストの取り込み（保留なし かつ コアが valid なら）
+            if (!req_saved.valid && req_core.valid && req_core.ready) begin
+                req_saved.valid <= 1'b1;
+                req_saved.addr  <= req_core.addr;
+                req_saved.wen   <= req_core.wen;
+                req_saved.wdata <= req_core.wdata;
+                req_saved.wmask <= req_core.wmask;
+
+                last_device     <= get_device(req_core.addr);
+                is_requested    <= get_device_ready(get_device(req_core.addr));
+            end
+        end
     end
 
 endmodule

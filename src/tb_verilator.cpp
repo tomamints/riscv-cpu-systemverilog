@@ -52,13 +52,26 @@ int main(int argc, char** argv) {
     setenv("ROM_FILE_PATH", rom_file_path.c_str(), 1);
     setenv("RAM_FILE_PATH", ram_file_path.c_str(), 1);
 
+    const char* dbg_addr_c = getenv("DBG_ADDR");
+    const unsigned long long DBG_ADDR = dbg_addr_c == nullptr ? 0 : std::strtoull(dbg_addr_c, nullptr, 0);
+
     // top
     Vcore_top *dut = new Vcore_top();
+    dut->MMAP_DBG_ADDR = DBG_ADDR;
 
-    // reset
+    // reset (active-low)
     dut->clk = 0;
-    dut->rst = 0;
+    dut->rst = 1;
     dut->eval();
+    // assert reset for a few half cycles
+    const int reset_cycles = 4;
+    for (int i = 0; i < reset_cycles; ++i) {
+        dut->clk = !dut->clk;
+        dut->rst = 0;
+        dut->eval();
+    }
+    // deassert reset before starting main loop
+    dut->clk = 0;
     dut->rst = 1;
     dut->eval();
 
@@ -79,7 +92,6 @@ int main(int argc, char** argv) {
     #endif
 
     // loop
-    dut->rst = 0;
     for (long long i=0; !Verilated::gotFinish() && (cycles == 0 || i / 2 < cycles); i++) {
         dut->clk = !dut->clk;
         dut->eval();
