@@ -3,7 +3,7 @@
 # ===============================================
 
 PROJECT     = core
-TOP_MODULE  = top
+TOP_MODULE  = core_top
 TB_PROGRAM  = src/tb_verilator.cpp
 
 # ツール
@@ -17,7 +17,7 @@ SRC_DIR   = src
 OBJ_DIR   = obj_dir
 
 # トップモジュール名
-TOP       = top
+TOP       = core_top
 
 # テストベンチ (C++)
 TB        = $(SRC_DIR)/tb_verilator.cpp
@@ -30,7 +30,8 @@ SIM       = $(OBJ_DIR)/sim
 SIM_NAME = sim
 
 # ラン用パラメータ
-MEMORY ?= src/test/sample_ecall.hex
+ROM ?= src/test/sample_ecall.hex
+RAM ?= $(ROM)
 CYCLES ?= 20
 
 # =====================================================
@@ -54,7 +55,7 @@ build:
 
 # 2️⃣ シミュレーション実行
 run:
-	$(SIM) $(MEMORY) $(CYCLES)
+	$(SIM) $(ROM) $(RAM) $(CYCLES)
 
 # 3️⃣ クリーンアップ
 clean:

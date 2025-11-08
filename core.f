@@ -13,3 +13,4 @@ src/memunit.sv
 src/brunit.sv
 src/csrunit.sv
 src/muldivunit.sv
+src/mmio_controller.sv

@@ -341,6 +341,7 @@ module mulunit #(
 
     integer add_count;
 
+`ifdef PRINT_DEBUG
 	always_ff @(posedge clk)begin
 		$display("mulunit_rvalid %b", rvalid);
 		$display("mulunit_result %d", result);
@@ -349,6 +350,7 @@ module mulunit #(
 		$display("mulunit_op2 %d",op2);
 		$display("mulunit_add_count %d",add_count);
 	end
+`endif
 
 	always_ff @(posedge clk or negedge rst) begin
         if (!rst) begin

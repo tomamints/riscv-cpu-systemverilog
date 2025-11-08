@@ -14,18 +14,21 @@ package eei;
 	typedef logic signed [63:0] SInt64;
 
 	// memory bus data
-	parameter int MEMBUS_DATA_WIDTH = 64;
+	localparam int MEMBUS_DATA_WIDTH = 64;
 
 	//RAM
-	parameter int RAM_ADDR_WIDTH = 16;
-	parameter int RAM_DATA_WIDTH = 64;
-	parameter Addr MMAP_RAM_BEGIN = Addr'('h8000_0000);
+	localparam int RAM_ADDR_WIDTH = 16;
+	localparam int RAM_DATA_WIDTH = 64;
+	localparam Addr MMAP_RAM_BEGIN = Addr'('h8000_0000);
 
 	//ROM
-	parameter int ROM_ADDR_WIDTH = 9;
-	parameter int ROM_DATA_WIDTH = 64;
-	parameter Addr MMAP_ROM_BEGIN = 'h1000;
-	parameter Addr MMAP_ROM_END = MMAP_ROM_BEGIN + 'h3ff;
+	localparam int ROM_ADDR_WIDTH = 9;
+	localparam int ROM_DATA_WIDTH = 64;
+	localparam Addr MMAP_ROM_BEGIN = Addr'('h1000);
+	localparam Addr MMAP_ROM_END   = Addr'(MMAP_ROM_BEGIN + 'h3ff);
+
+	// reset vector
+	localparam Addr INITIAL_PC = MMAP_ROM_BEGIN;
 
 	localparam logic [6:0] OP_LUI       = 7'b0110111;//localparam→上書きできないように
 	localparam logic [6:0] OP_AUIPC     = 7'b0010111;
@@ -45,7 +48,8 @@ package eei;
 		MTVEC = 12'h305,
 		MEPC = 12'h341,
 		MCAUSE = 12'h342,
-		MTVAL = 12'h343
+		MTVAL = 12'h343,
+		LED   = 12'h800
 	} CsrAddr;
 
 	typedef enum UIntX{

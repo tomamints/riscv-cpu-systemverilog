@@ -5,7 +5,8 @@ module core (
 	input logic clk,
 	input logic rst,
 	i_membus.master i_membus,
-	Membus.master d_membus
+	Membus.master d_membus,
+	output UIntX led
 );
 
 	typedef struct packed {
@@ -122,16 +123,84 @@ module core (
 		i_membus.wdata = 'x; //未定 32bit全部X
 	end
 
+	always_ff @(posedge clk) begin
+		$display("[IF] if_fifo_wready_two=%b if_is_requested=%b i_membus.valid=%b pc=%h",
+			if_fifo_wready_two,
+			if_is_requested,
+			i_membus.valid,
+			if_pc
+		);
+	end
+	always_ff @(posedge clk) begin
+		if (i_membus.valid && i_membus.ready) begin
+			$display("[IF] ISSUE_FETCH pc=%h next_pc=%h req=%b fifo_ready=%b",
+				if_pc,
+				if_pc_next,
+				if_is_requested,
+				if_fifo_wready
+			);
+		end
+		if (if_is_requested && i_membus.rvalid) begin
+			$display("[IF] RESP_FETCH addr=%h rdata=%h fifo_wvalid=%b fifo_wready=%b",
+				if_pc_requested,
+				i_membus.rdata,
+				if_fifo_wvalid,
+				if_fifo_wready
+			);
+		end
+	end
+	always_ff @(posedge clk) begin
+		$display("[IF_SM] req=%b rvalid=%b ready=%b valid=%b pc=%h pc_req=%h fifo_wvalid=%b fifo_ready=%b wready_two=%b",
+			if_is_requested,
+			i_membus.rvalid,
+			i_membus.ready,
+			i_membus.valid,
+			if_pc,
+			if_pc_requested,
+			if_fifo_wvalid,
+			if_fifo_wready,
+			if_fifo_wready_two
+		);
+		if (if_is_requested && i_membus.rvalid) begin
+			$display("[IF_SM] LATCH inst addr=%h data=%h",
+				if_pc_requested,
+				i_membus.rdata
+			);
+		end
+		if (if_fifo_wvalid && !if_fifo_wready) begin
+			$display("[IF_SM] FIFO_BACKPRESSURE addr=%h data=%h",
+				if_fifo_wdata.addr,
+				if_fifo_wdata.bits
+			);
+		end else if (if_fifo_wvalid && if_fifo_wready) begin
+			$display("[IF_SM] FIFO_ACCEPT addr=%h data=%h",
+				if_fifo_wdata.addr,
+				if_fifo_wdata.bits
+			);
+		end
+	end
+	always_ff @(posedge clk) begin
+		if (if_fifo_wvalid | 1) begin
+			$display("[IF→ID FIFO] PUSH addr=%h inst(bits)=%h",
+				if_fifo_wdata.addr,
+				if_fifo_wdata.bits
+			);
+		end
+	end
+
+
+
 	//命令フェッチステートマシン
 	//
 
 	always_ff @(posedge clk or negedge rst) begin
 		if(!rst)begin
-			if_pc <='0;
+			if_pc <= INITIAL_PC;
 			if_is_requested <= 1'b0;
-			if_pc_requested <= '0;
+			if_pc_requested <= INITIAL_PC;
 			if_fifo_wvalid <= 1'b0;
 			if_fifo_wdata <= '{default:0};
+			$display("INITIAL_PC = %h", INITIAL_PC);
 		end else begin
 			if(control_hazard)begin
 				if_pc <= control_hazard_pc_next;
@@ -165,6 +234,16 @@ module core (
 			end
 		end
 	end
+
+	always_ff @(posedge clk) begin
+		if (if_fifo_rvalid) begin
+			$display("[ID] RECEIVED inst(bits)=%h pc=%h",
+				if_fifo_rdata.bits,
+				if_fifo_rdata.addr
+			);
+		end
+	end
+
 
 
 ////////////////// ID Stage /////////////////////
@@ -514,6 +593,9 @@ module core (
 	end
 
 
+	assign led = '0;
+
+`ifdef PRINT_DEBUG
 	/////////////DEBUG ////////////////
 
 	logic[63:0] clock_count;
@@ -583,6 +665,7 @@ module core (
 			end
 		end
 	end
+`endif
 
 	////////////////////////FIFO/////////////////////
 	fifo#(
