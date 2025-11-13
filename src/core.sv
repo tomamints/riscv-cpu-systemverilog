@@ -135,7 +135,6 @@ module core (
 			if_pc_requested <= INITIAL_PC;
 			if_fifo_wvalid <= 1'b0;
 			if_fifo_wdata <= '{default:0};
-			$display("INITIAL_PC = %h", INITIAL_PC);
 		end else begin
 			if(control_hazard)begin
 				if_pc <= control_hazard_pc_next;
@@ -170,6 +169,7 @@ module core (
 		end
 	end
 
+/*
 	always_ff @(posedge clk) begin
 		if (if_fifo_rvalid) begin
 			$display("[ID] RECEIVED inst(bits)=%h pc=%h",
@@ -178,7 +178,7 @@ module core (
 			);
 		end
 	end
-
+*/
 
 
 ////////////////// ID Stage /////////////////////
@@ -256,7 +256,7 @@ module core (
 	assign exs_mem_data_hazard = mems_valid && mems_ctrl.rwb_en && ((mems_rd_addr == exs_rs1_addr) || (mems_rd_addr == exs_rs2_addr));
 	assign exs_wb_data_hazard = wbs_valid && wbs_ctrl.rwb_en && (wbs_rd_addr == exs_rs1_addr || wbs_rd_addr == exs_rs2_addr);
 	assign exs_data_hazard = exs_mem_data_hazard || exs_wb_data_hazard;
-
+/*
 	always_ff @(posedge clk)begin
 		$display("DECODE: inst=%h itype=%0d is_muldiv=%b funct7=%0d imm=%h",
          ids_inst_bits,
@@ -271,7 +271,7 @@ module core (
 		$display("exs_rs1_addr = %d",exs_rs1_addr);
 		$display("compare = %d",mems_rd_addr == exs_rs1_addr);
 	end
-
+*/
 	//ALU
 
 	UIntX exs_op1,exs_op2,exs_alu_result;
@@ -533,7 +533,7 @@ module core (
 	/////////////DEBUG ////////////////
 
 	logic[63:0] clock_count;
-
+/*
 	always_ff @(posedge clk or negedge rst) begin
 		if(!rst)begin
 			clock_count <= 64'd0;
@@ -599,7 +599,7 @@ module core (
 			end
 		end
 	end
-
+*/
 	////////////////////////FIFO/////////////////////
 	fifo#(
 		.DATA_TYPE(exq_type),

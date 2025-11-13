@@ -66,20 +66,32 @@ module core_top #(
         dbg_membus.ready  <= 1'b1;
         dbg_membus.rvalid <= dbg_membus.valid;
 
-        if (dbg_membus.valid && dbg_membus.wen && dbg_membus.wdata[0] == 1'b1) begin
-            `ifdef TEST_MODE
-                test_success <= (dbg_membus.wdata == 64'h1);
-            `endif
+        if (dbg_membus.valid && dbg_membus.wen) begin
 
-            if (dbg_membus.wdata == 64'h1) begin
-                $display("test success!");
-            end else begin
-                $display("test failed!");
-                $error("wdata : %h", dbg_membus.wdata);
+            // ① printf 出力（上位20bitが 01010h）
+            if (dbg_membus.wdata[MEMBUS_DATA_WIDTH-1 -: 20] == 20'h01010) begin
+                $write("%c", dbg_membus.wdata[7:0]);
             end
-            $finish();
+
+            // ② テスト終了フラグ（LSBが 1）
+            else if (dbg_membus.wdata[0] == 1'b1) begin
+                `ifdef TEST_MODE
+                    test_success <= (dbg_membus.wdata == 64'h1);
+                `endif
+
+                if (dbg_membus.wdata == 64'h1) begin
+                    $display("test success!");
+                end else begin
+                    $display("test failed!");
+                    $error("wdata : %h", dbg_membus.wdata);
+                end
+
+                $finish();
+            end
+
         end
     end
+
 
 
 
@@ -94,7 +106,7 @@ module core_top #(
             memarb_last_iaddr <= i_membus.addr;
         end
     end
-
+/*
     always_ff @(posedge clk) begin
         $display("[TOP-MMIO] mmio_v=%b mmio_rdy=%b mmio_rvalid=%b mmio_addr=%h last_i=%b last_addr=%h i_v=%b i_rdy=%b d_v=%b d_rdy=%b memarb_ready=%b",
             mmio_membus.valid,
@@ -123,7 +135,7 @@ module core_top #(
             );
         end
     end
-
+*/
     // I/D → MMIO（要求多重化 & 応答戻し）
     always_comb begin
         i_membus.ready  = mmio_membus.ready && !d_membus.valid;
@@ -162,6 +174,7 @@ module core_top #(
         mmio_ram_membus.rdata  = ram_membus.rdata;
     end
 
+/*
     // === DEBUG: RAMのアドレス→インデックス→データ/書き込み可視化 ===
     always_ff @(posedge clk) begin
     if (mmio_ram_membus.valid) begin
@@ -178,7 +191,7 @@ module core_top #(
         end
     end
     end
-
+*/
 
     // mmio <> ROM (read-only)
     always_comb begin
@@ -191,6 +204,8 @@ module core_top #(
         mmio_rom_membus.rvalid = rom_membus.rvalid;
         mmio_rom_membus.rdata  = rom_membus.rdata;
     end
+
+    /*
 
     // === DEBUG: RAMのアドレス→インデックス→データ/書き込み可視化 ===
    // ===== Debug ROM MMIO handshake monitor =====
@@ -205,7 +220,7 @@ module core_top #(
             );
         end
     end
-
+*/
 
     // RAM/ROM 実体
     memory #(
