@@ -53,13 +53,13 @@ module mmio_controller (
     endfunction
 
     function Device get_device (input Addr addr);
-        if (DBG_ADDR <= addr && addr <= DBG_ADDR +7) return DEBUG;
+        if (DBG_ADDR <= addr && addr <= DBG_ADDR + 64'd7) return DEBUG;
         if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ROM_END)) return ROM;
         if (addr >= MMAP_RAM_BEGIN) return RAM;
         return UNKNOWN;
     endfunction
 
-    function void drive_device_master (
+    function void assign_device_master (
         input  logic                           valid,
         input  logic [XLEN-1:0]                addr,
         input  logic                           wen,
@@ -92,8 +92,8 @@ module mmio_controller (
         endcase
     endfunction
 
-    function logic get_device_ready (input Device d);
-        unique case (d)
+    function logic get_device_ready (input Device device);
+        unique case (device)
             RAM: return ram_membus.ready;
             ROM: return rom_membus.ready;
             DEBUG: return dbg_membus.ready;
@@ -101,8 +101,8 @@ module mmio_controller (
         endcase
     endfunction
 
-    function logic get_device_rvalid (input Device d);
-        unique case (d)
+    function logic get_device_rvalid (input Device device);
+        unique case (device)
             RAM: return ram_membus.rvalid;
             ROM: return rom_membus.rvalid;
             DEBUG: return dbg_membus.rvalid;
@@ -110,14 +110,15 @@ module mmio_controller (
         endcase
     endfunction
 
-    function void readback_device (
-        input  Device                         d,
-        output logic                          rvalid,
-        output logic [MEMBUS_DATA_WIDTH-1:0]  rdata
+    // デバイスの rvalid, rdata を req_core に割当（Veryl の assign_device_slave）
+    function void assign_device_slave (
+        input  Device                        device,
+        output logic                         rvalid,
+        output logic [MEMBUS_DATA_WIDTH-1:0] rdata
     );
         rvalid = 1'b0;
         rdata  = '0;
-        unique case (d)
+        unique case (device)
             RAM: begin
                 rvalid = ram_membus.rvalid;
                 rdata  = ram_membus.rdata;
@@ -134,6 +135,23 @@ module mmio_controller (
         endcase
     endfunction
 
+    // コア側
+
+    always_comb begin
+        req_core.ready = 1'b0;
+        req_core.rvalid = 1'b0;
+        req_core.rdata = '0;
+
+        if (req_saved.valid) begin
+            if (is_requested) begin
+                assign_device_slave(last_device, req_core.rvalid, req_core.rdata);
+                req_core.ready = get_device_rvalid(last_device);
+            end
+        end else begin
+            req_core.ready = 1'b1;
+        end
+    end
+
     // ---------- combinational: master配線 & コアへの応答 ----------
     always_comb begin
         // 1) まず全デバイス出力をクリア
@@ -141,52 +159,91 @@ module mmio_controller (
 
         // 2) outstanding があればそれをドライブ
         if (req_saved.valid) begin
-            drive_device_master(
-                req_saved.valid,
-                req_saved.addr,
-                req_saved.wen,
-                req_saved.wdata,
-                req_saved.wmask
-            );
+            if (is_requested) begin
+                if (get_device_rvalid(last_device)) begin
+                    if (req_core.ready && req_core.valid) begin
+                        assign_device_master(
+                            req_core.valid,
+                            req_core.addr,
+                            req_core.wen,
+                            req_core.wdata,
+                            req_core.wmask
+                        );
+                    end
+                end
+            end else begin
+                assign_device_master(
+                    req_saved.valid,
+                    req_saved.addr,
+                    req_saved.wen,
+                    req_saved.wdata,
+                    req_saved.wmask
+                );
+            end
+        end else begin
+            if (req_core.ready && req_core.valid) begin
+                assign_device_master(
+                    req_core.valid,
+                    req_core.addr,
+                    req_core.wen,
+                    req_core.wdata,
+                    req_core.wmask
+                );
+            end
         end
-
-        // 3) コアへの応答
-        req_core.rvalid = 1'b0;
-        req_core.rdata  = '0;
-
-        if (req_saved.valid) begin
-            readback_device(last_device, req_core.rvalid, req_core.rdata);
-        end
-
-        // 4) ready: outstanding が無い時だけ 1
-        //    （単発リクエスト＝1件滞留方式）
-        req_core.ready = (req_saved.valid == 1'b0);
     end
+
+    // 新しく要求を受け入れる→今回は直接入力で
+    function void accept_request ();
+        req_saved.valid = req_core.ready && req_core.valid;
+        if (req_core.ready && req_core.valid) begin
+            last_device  = get_device(req_core.addr);
+            is_requested = get_device_ready(last_device);
+            // reqを保存
+            req_saved.addr  = req_core.addr;
+            req_saved.wen   = req_core.wen;
+            req_saved.wdata = req_core.wdata;
+            req_saved.wmask = req_core.wmask;
+        end
+    endfunction
 
     // ---------- sequential: ラッチ/クリア ----------
     always_ff @(posedge clk or negedge rst) begin
         if (!rst) begin
-            req_saved    <= '{default:'0};
             last_device  <= UNKNOWN;
             is_requested <= 1'b0;
+            reset_membus_master(req_saved.valid, req_saved.addr, req_saved.wen, req_saved.wdata, req_saved.wmask);
         end else begin
             // デバイス応答を受け取ったら次サイクルで outstanding をクリア
-            if (req_saved.valid && get_device_rvalid(last_device)) begin
-                req_saved.valid <= 1'b0;
-            end
-
-            // 新規リクエストの取り込み（保留なし かつ コアが valid なら）
-            if (!req_saved.valid && req_core.valid && req_core.ready) begin
-                req_saved.valid <= 1'b1;
-                req_saved.addr  <= req_core.addr;
-                req_saved.wen   <= req_core.wen;
-                req_saved.wdata <= req_core.wdata;
-                req_saved.wmask <= req_core.wmask;
-
-                last_device     <= get_device(req_core.addr);
-                is_requested    <= get_device_ready(get_device(req_core.addr));
+            if (req_saved.valid) begin
+                if (is_requested) begin
+                    if (get_device_rvalid(last_device)) begin
+                        req_saved.valid <= req_core.ready && req_core.valid;
+                        if (req_core.ready && req_core.valid) begin
+                            last_device  <= get_device(req_core.addr);
+                            is_requested <= get_device_ready(last_device);
+                            // reqを保存
+                            req_saved.addr  <= req_core.addr;
+                            req_saved.wen   <= req_core.wen;
+                            req_saved.wdata <= req_core.wdata;
+                            req_saved.wmask <= req_core.wmask;
+                        end
+                    end
+                end else begin
+                    is_requested <= get_device_ready(last_device);
+                end
+            end else begin
+                req_saved.valid <= req_core.ready && req_core.valid;
+                if (req_core.ready && req_core.valid) begin
+                    last_device  <= get_device(req_core.addr);
+                    is_requested <= get_device_ready(last_device);
+                    // reqを保存
+                    req_saved.addr  <= req_core.addr;
+                    req_saved.wen   <= req_core.wen;
+                    req_saved.wdata <= req_core.wdata;
+                    req_saved.wmask <= req_core.wmask;
+                end
             end
         end
     end
-
 endmodule

@@ -66,33 +66,18 @@ module core_top #(
         dbg_membus.ready  <= 1'b1;
         dbg_membus.rvalid <= dbg_membus.valid;
 
-        if (dbg_membus.valid && dbg_membus.wen) begin
+        if (dbg_membus.valid && dbg_membus.wen && dbg_membus.wdata[0] == 1'b1) begin
+            `ifdef TEST_MODE
+                test_success <= (dbg_membus.wdata == 64'h1);
+            `endif
 
-            // 文字出力
-            if (dbg_membus.wdata[MEMBUS_DATA_WIDTH - 1 -: 20] == 20'h01010) begin
-                $write("%c", dbg_membus.wdata[7:0]);
-
-            // テスト終了判定（※下位8bitのみで判定）
-            end else if (dbg_membus.wdata[7:0] == 8'h01) begin
-
-                `ifdef TEST_MODE
-                    test_success <= 1'b1;
-                `endif
-
+            if (dbg_membus.wdata == 64'h1) begin
                 $display("test success!");
-                $finish();
-
-            // （念のため）失敗判定
-            end else if (dbg_membus.wdata[7:0] != 8'h00) begin
-
-                `ifdef TEST_MODE
-                    test_success <= 1'b0;
-                `endif
-
+            end else begin
                 $display("test failed!");
                 $error("wdata : %h", dbg_membus.wdata);
-                $finish();
             end
+            $finish();
         end
     end
 
