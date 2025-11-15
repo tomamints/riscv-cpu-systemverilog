@@ -533,7 +533,8 @@ module core (
 	/////////////DEBUG ////////////////
 
 	logic[63:0] clock_count;
-/*
+
+`ifdef TEST_MODE
 	always_ff @(posedge clk or negedge rst) begin
 		if(!rst)begin
 			clock_count <= 64'd0;
@@ -599,7 +600,7 @@ module core (
 			end
 		end
 	end
-*/
+`endif
 	////////////////////////FIFO/////////////////////
 	fifo#(
 		.DATA_TYPE(exq_type),

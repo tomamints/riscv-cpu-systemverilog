@@ -61,36 +61,41 @@ module core_top #(
     logic memarb_last_i;
     Addr  memarb_last_iaddr;
 
-
+    // デバッグ用のIO
     always_ff @(posedge clk) begin
-        dbg_membus.ready  <= 1'b1;
+        dbg_membus.ready  <= 1;
         dbg_membus.rvalid <= dbg_membus.valid;
 
-        if (dbg_membus.valid && dbg_membus.wen) begin
-
-            // ① printf 出力（上位20bitが 01010h）
-            if (dbg_membus.wdata[MEMBUS_DATA_WIDTH-1 -: 20] == 20'h01010) begin
-                $write("%c", dbg_membus.wdata[7:0]);
-            end
-
-            // ② テスト終了フラグ（LSBが 1）
-            else if (dbg_membus.wdata[0] == 1'b1) begin
-                `ifdef TEST_MODE
-                    test_success <= (dbg_membus.wdata == 64'h1);
-                `endif
-
-                if (dbg_membus.wdata == 64'h1) begin
-                    $display("test success!");
-                end else begin
-                    $display("test failed!");
-                    $error("wdata : %h", dbg_membus.wdata);
+        if (dbg_membus.valid) begin
+            if (dbg_membus.wen) begin
+                // printf 出力（上位20bitが 01010h）
+                if (dbg_membus.wdata[MEMBUS_DATA_WIDTH - 1 -: 20] == 20'h01010) begin
+                    $write("%c", dbg_membus.wdata[7:0]);
                 end
+                // テスト終了フラグ（LSB == 1）
+                else if (dbg_membus.wdata[0] == 1'b1) begin
+                    `ifdef TEST_MODE
+                        test_success <= (dbg_membus.wdata == 64'h1);
+                    `endif
 
-                $finish();
+                    if (dbg_membus.wdata == 64'h1) begin
+                        $display("test success!");
+                    end
+                    else begin
+                        $display("test failed!");
+                        $error("wdata : %h", dbg_membus.wdata);
+                    end
+                    $finish();
+                end
             end
-
+            else begin
+                `ifdef ENABLE_DEBUG_INPUT
+                    dbg_membus.rdata <= util::get_input();
+                `endif
+            end
         end
     end
+
 
 
 
