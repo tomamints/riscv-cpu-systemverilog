@@ -41,17 +41,6 @@ CYCLES ?= 20
 .PHONY: all build run clean
 
 
-sim_o:
-		verilator --cc $(VERILATOR_FLAGS) -f $(FILELIST) --exe $(TB_PROGRAM) --top-module $(TOP_MODULE) --Mdir $(OBJ_DIR)
-		make -C $(OBJ_DIR) -f V$(TOP_MODULE).mk
-		mv $(OBJ_DIR)/V$(TOP_MODULE) $(OBJ_DIR)/$(SIM_NAME)
-
-# 1️⃣ VerilatorでC++シミュレータを生成
-build_o:
-	$(VERILATOR) --cc -f $(FILELIST) --exe $(TB) --top-module $(TOP) --Mdir $(OBJ_DIR)
-	make -C $(OBJ_DIR) -f V$(TOP).mk
-	mv $(OBJ_DIR)/V$(TOP) $(OBJ_DIR)/$(SIM_NAME)
-	@echo "✅ Build complete. Run simulation with: make run"
 
 # 2️⃣ シミュレーション実行
 run:

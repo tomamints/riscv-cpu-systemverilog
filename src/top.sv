@@ -61,41 +61,56 @@ module core_top #(
     logic memarb_last_i;
     Addr  memarb_last_iaddr;
 
-    // デバッグ用のIO
+
+    localparam Addr RISCVTESTS_TOHOST_ADDR = 64'h8000_1000;
+
     always_ff @(posedge clk) begin
-        dbg_membus.ready  <= 1;
+        // -----------------------------------------------------------
+        // Debug membus は常に ready
+        // -----------------------------------------------------------
+        dbg_membus.ready  <= 1'b1;
         dbg_membus.rvalid <= dbg_membus.valid;
 
+        // ① Debug I/O (0x4000_0000) : printf / exit-flag
         if (dbg_membus.valid) begin
             if (dbg_membus.wen) begin
-                // printf 出力（上位20bitが 01010h）
-                if (dbg_membus.wdata[MEMBUS_DATA_WIDTH - 1 -: 20] == 20'h01010) begin
+                // (A) printf 出力（上位20bitが 01010h）
+                if (dbg_membus.wdata[MEMBUS_DATA_WIDTH-1 -: 20] == 20'h01010) begin
+                    // ====== 入力可視化 ======
+                    
+                    logic [7:0] ch;
+                    ch = dbg_membus.wdata[7:0];
+
+                    if (ch == 8'h00) begin
+                        $display("[DEBUG-IO] input = NONE");
+                    end else begin
+                        $display("[DEBUG-IO] input = '%c' (0x%02h)", ch, ch);
+                    end
+                    // =========================
+
                     $write("%c", dbg_membus.wdata[7:0]);
                 end
-                // テスト終了フラグ（LSB == 1）
+                // (B) 自作終了フラグ（LSB==1） ※このケースでは 0x01010 は立っていない前提
                 else if (dbg_membus.wdata[0] == 1'b1) begin
                     `ifdef TEST_MODE
                         test_success <= (dbg_membus.wdata == 64'h1);
                     `endif
 
-                    if (dbg_membus.wdata == 64'h1) begin
+                    if (dbg_membus.wdata == 64'h1)
                         $display("test success!");
-                    end
                     else begin
                         $display("test failed!");
                         $error("wdata : %h", dbg_membus.wdata);
                     end
                     $finish();
                 end
-            end
-            else begin
+            end else begin
                 `ifdef ENABLE_DEBUG_INPUT
                     dbg_membus.rdata <= util::get_input();
                 `endif
             end
         end
     end
-
 
 
 

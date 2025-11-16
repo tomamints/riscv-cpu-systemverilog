@@ -4,6 +4,9 @@
 #include <verilated.h>
 #include "Vcore_top.h"
 #include <verilated_vcd_c.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <signal.h>
 
 namespace fs = std::filesystem;
 
@@ -14,6 +17,67 @@ extern "C" const char* get_env_value(const char* key) {
     return value;
 }
 
+extern "C" const unsigned long long get_input_dpic() {
+    unsigned char c = 0;
+    ssize_t bytes_read = read(STDIN_FILENO, &c, 1);
+
+    if (bytes_read == 1) {
+        return static_cast<unsigned long long>(c) | (0x01010ULL << 44);
+    }
+    return 0;
+}
+
+struct termios old_setting;
+
+void restore_termios_setting(void) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_setting);
+}
+
+void sighandler(int signum) {
+    restore_termios_setting();
+    exit(signum);
+}
+
+void set_nonblocking(void) {
+    struct termios new_setting;
+
+    // 元の設定保存
+    if (tcgetattr(STDIN_FILENO, &old_setting) == -1) {
+        perror("tcgetattr");
+        return;
+    }
+
+    // まず old_setting をコピー
+    new_setting = old_setting;
+
+    // 完全 RAW モードにする
+    cfmakeraw(&new_setting);
+    new_setting.c_cc[VMIN]  = 0;
+    new_setting.c_cc[VTIME] = 0;
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_setting) == -1) {
+        perror("tcsetattr");
+        return;
+    }
+
+    signal(SIGINT,  sighandler);
+    signal(SIGTERM, sighandler);
+    signal(SIGQUIT, sighandler);
+    atexit(restore_termios_setting);
+
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if (flags == -1) {
+        perror("fcntl(F_GETFL)");
+        return;
+    }
+    if (fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl(F_SETFL)");
+        return;
+    }
+}
+
+
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
@@ -21,6 +85,10 @@ int main(int argc, char** argv) {
         std::cout << "Usage: " << argv[0] << " ROM_FILE_PATH RAM_FILE_PATH [CYCLE]" << std::endl;
         return 1;
     }
+
+    #ifdef ENABLE_DEBUG_INPUT
+        set_nonblocking();
+    #endif
 
     // メモリの初期値を格納しているファイル名
     std::string rom_file_path = argv[1];
