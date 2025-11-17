@@ -43,7 +43,23 @@ package eei;
 	localparam logic [6:0] OP_STORE     = 7'b0100011;
 	localparam logic [6:0] OP_SYSTEM    = 7'b1110011;
 	localparam logic [6:0] OP_MISC_MEM  = 7'b0001111;
+	localparam logic [6:0] OP_AMO  = 7'b0101111;
 
+
+	typedef enum logic [4:0] {
+		LR = 5'b00010,
+        SC = 5'b00011,
+        SWAP = 5'b00001,
+        ADD = 5'b00000,
+        XOR = 5'b00100,
+        AND = 5'b01100,
+        OR = 5'b01000,
+        MIN = 5'b10000,
+        MAX = 5'b10100,
+        MINU = 5'b11000,
+        MAXU = 5'b11100
+	} AMOOp;
+	
 	typedef enum logic [11:0]{
 		MTVEC = 12'h305,
 		MEPC = 12'h341,

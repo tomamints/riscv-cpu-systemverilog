@@ -5,7 +5,7 @@ module core (
 	input logic clk,
 	input logic rst,
 	i_membus.master i_membus,
-	Membus.master d_membus,
+	core_data_if.master d_membus,
 	output UIntX led
 );
 
@@ -376,6 +376,7 @@ module core (
 	assign exs_stall = exs_data_hazard || exs_muldiv_stall;
 
 	logic instruction_address_misaligned;
+	Addr memaddr;
 	logic loadstore_address_misaligned;
 
 	always_comb begin
@@ -394,13 +395,18 @@ module core (
 		memq_wdata.jump_addr = (inst_is_br(exs_ctrl)) ? exs_pc + exs_imm : exs_alu_result & ~1;
 		// exception
 		instruction_address_misaligned = (memq_wdata.br_taken && memq_wdata.jump_addr[1:0] != 2'b00);
-		case (exs_ctrl.funct3[1:0])
-			2'b00 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && 0;
-			2'b01 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[0]   != 1'b0); //H
-			2'b10 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[1:0] != 2'b0);
-			2'b11 : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && (exs_alu_result[2:0] != 3'b0);
-			default : loadstore_address_misaligned = inst_is_memop(exs_ctrl) && 0;
-		endcase
+		memaddr = exs_ctrl.is_amo ? exs_rs1_data : exs_alu_result;
+		if (inst_is_memop(exs_ctrl)) begin
+			unique case (exs_ctrl.funct3[1:0])
+				2'b00 : loadstore_address_misaligned = 1'b0;
+				2'b01 : loadstore_address_misaligned = (memaddr[0]   != 1'b0); //H
+				2'b10 : loadstore_address_misaligned = (memaddr[1:0] != 2'b00); //W
+				2'b11 : loadstore_address_misaligned = (memaddr[2:0] != 3'b000); //D
+				default : loadstore_address_misaligned = 1'b0;
+			endcase
+		end else begin
+			loadstore_address_misaligned = 1'b0;
+		end
 		memq_wdata.expt = exq_rdata.expt;
 		if (!memq_rdata.expt.valid)begin
 			if ( instruction_address_misaligned)begin
@@ -443,17 +449,20 @@ module core (
 
 	UIntX memu_rdata;
 	logic memu_stall;
+	Addr memu_addr;
+	assign memu_addr = mems_ctrl.is_amo ? memq_rdata.rs1_data : memq_rdata.alu_result;
+
 	memunit memu (
 		.clk    (clk),
 		.rst    (rst),
 		.valid  (mems_valid && !mems_expt.valid),
 		.is_new (mems_is_new),
 		.ctrl   (mems_ctrl),
-		.addr   (memq_rdata.alu_result),
+		.addr   (memu_addr),
 		.rs2    (memq_rdata.rs2_data),
 		.rdata  (memu_rdata),
 		.stall  (memu_stall),
-		.membus (d_membus.master)
+		.membus (d_membus)
 	);
 
 	UIntX csru_rdata;
@@ -507,7 +516,7 @@ module core (
 			wbs_wb_data = wbs_imm;
 		end else if (wbs_ctrl.is_jump) begin
 			wbs_wb_data = wbs_pc + (64'd4); // XLEN 64 前提
-		end else if (wbs_ctrl.is_load) begin
+		end else if (wbs_ctrl.is_load || wbs_ctrl.is_amo) begin
 			wbs_wb_data = wbq_rdata.mem_rdata;
 		end else if (wbs_ctrl.is_csr) begin
 			wbs_wb_data = wbq_rdata.csr_rdata;
@@ -589,6 +598,9 @@ module core (
 				end
 				if (memq_rdata.br_taken)begin
 					$display(" JUMP TO : %h", memq_rdata.jump_addr);
+				end
+				if(inst_is_memop(mems_ctrl)) begin
+					$display("mem.memaddr,h,%b", memu_addr);
 				end
 			end
 			$display("WB ----");

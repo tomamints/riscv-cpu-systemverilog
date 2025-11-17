@@ -11,7 +11,7 @@ module memunit (
 	input UIntX rs2, //ストア命令で書き込むデータ
 	output UIntX rdata, //ロード命令の結果（stall=0の時有効）
 	output logic stall, //メモリアクセス命令が完了していない
-	Membus membus //メモリとのinterface
+	core_data_if.master membus //メモリとのinterface
 	);
 
 
@@ -27,6 +27,11 @@ module memunit (
 	Addr req_addr;
 	logic [MEMBUS_DATA_WIDTH-1:0]          req_wdata;
 	logic [(MEMBUS_DATA_WIDTH/8)-1:0]      req_wmask;
+	logic req_is_amo;
+	AMOOp req_amoop;
+	logic req_aq;
+	logic req_rl;
+	logic [2:0] req_funct3 ;
 
 	localparam int W = XLEN;
 	logic [MEMBUS_DATA_WIDTH-1:0] D;
@@ -37,11 +42,16 @@ module memunit (
 		D    = membus.rdata;
 		sext = (ctrl.funct3[2] == 1'b0);//1xx→Unsigned系
 
-		membus.valid = state == WaitReady;
-		membus.addr = req_addr;
-		membus.wen  = req_wen;
-		membus.wdata = req_wdata;
-		membus.wmask = req_wmask;
+		membus.valid  = state == WaitReady;
+		membus.addr   = req_addr;
+		membus.wen    = req_wen;
+		membus.wdata  = req_wdata;
+		membus.wmask  = req_wmask;
+		membus.is_amo = req_is_amo;
+		membus.amoop  = req_amoop;
+		membus.aq     = req_aq;
+		membus.rl     = req_rl;
+		membus.funct3 = req_funct3;
 		//Loadの結果
 		case ( ctrl.funct3[1:0])
 			2'b00:begin //LB,LBU
@@ -88,11 +98,16 @@ module memunit (
 
 	always_ff @(posedge clk or negedge rst) begin
 		if(!rst)begin
-			state    <= Init;
-			req_wen  <= 1'b0;
-			req_addr <= '0;
-			req_wdata<= '0;
-			req_wmask<= '0;
+			state      <= Init;
+			req_wen    <= 1'b0;
+			req_addr   <= '0;
+			req_wdata  <= '0;
+			req_wmask  <= '0;
+			req_is_amo <= '0;
+			req_amoop  <= AMOOp'(0);
+			req_aq     <= '0;
+			req_rl     <= '0;
+			req_funct3 <= '0;
 		end else if (valid)begin
 			case(state)
 				Init: begin
@@ -122,6 +137,11 @@ module memunit (
 							2'b11: req_wmask <= 8'b11111111;
 							default: req_wmask <= 'x;
 						endcase
+						req_is_amo = ctrl.is_amo;
+						req_amoop = AMOOp'(ctrl.funct7[6:2]);
+						req_aq = ctrl.funct7[1];
+						req_rl = ctrl.funct7[0];
+						req_funct3 = ctrl.funct3;
 					end
 				end
 

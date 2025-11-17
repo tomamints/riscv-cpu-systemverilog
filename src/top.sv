@@ -58,11 +58,12 @@ module core_top #(
         .ADDR_WIDTH(XLEN)
     ) d_membus();
 
+    core_data_if #(
+    ) d_membus_core();
+
     logic memarb_last_i;
     Addr  memarb_last_iaddr;
 
-
-    localparam Addr RISCVTESTS_TOHOST_ADDR = 64'h8000_1000;
 
     always_ff @(posedge clk) begin
         // -----------------------------------------------------------
@@ -77,7 +78,7 @@ module core_top #(
                 // (A) printf 出力（上位20bitが 01010h）
                 if (dbg_membus.wdata[MEMBUS_DATA_WIDTH-1 -: 20] == 20'h01010) begin
                     // ====== 入力可視化 ======
-                    
+
                     logic [7:0] ch;
                     ch = dbg_membus.wdata[7:0];
 
@@ -276,12 +277,19 @@ module core_top #(
         .dbg_membus  (dbg_membus)
     );
 
+    amounit amou (
+        .clk    (clk),
+        .rst    (rst),
+        .slave  (d_membus_core),
+        .master (d_membus)
+    );
+
     // コア接続（Veryl命名に完全一致）
     core c (
         .clk      (clk),
         .rst      (rst),
         .i_membus (i_membus),
-        .d_membus (d_membus),
+        .d_membus (d_membus_core),
         .led      (led)
     );
 

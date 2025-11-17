@@ -93,6 +93,10 @@ module inst_decoder(
 				valid = T; // FENCE
 			end
 
+			OP_AMO: begin
+				valid = (f3 == 3'b010) || (f3 == 3'b011); //AMO
+			end
+
 			default: begin
 				valid = F;
 			end
@@ -120,6 +124,8 @@ module inst_decoder(
 		ctrl.funct7 = f7;
 
 		ctrl.is_csr = F;
+
+		ctrl.is_amo = F;
 
 		unique case (op)
 		OP_LUI: begin
@@ -180,6 +186,11 @@ module inst_decoder(
 			ctrl.itype = INST_I;
 			ctrl.rwb_en = T;
 			ctrl.is_csr = T;
+		end
+		OP_AMO:begin
+			ctrl.itype = INST_R;
+			ctrl.rwb_en = T;
+			ctrl.is_amo = T;
 		end
 		default: begin
 			ctrl.itype = INST_X;

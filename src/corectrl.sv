@@ -21,6 +21,7 @@ package corectrl;
 		logic is_jump;  //ジャンプ命令である
 		logic is_load;  //ロード命令である
 		logic is_csr;   //CSR命令である
+		logic is_amo;   //AMO instruction
 		logic[2:0] funct3;  //命令のfunct3フィールド
 		logic [6:0] funct7; //命令のfunct7フィールド
 	}InstCtrl;
@@ -32,7 +33,7 @@ package corectrl;
 	} ExceptionInfo;
 
 	function automatic logic inst_is_memop(input InstCtrl ctrl);
-		return (ctrl.itype == INST_S) || ctrl.is_load;
+		return (ctrl.itype == INST_S) || ctrl.is_load || ctrl.is_amo;
 	endfunction
 
 	function automatic logic inst_is_store(input InstCtrl ctrl);
