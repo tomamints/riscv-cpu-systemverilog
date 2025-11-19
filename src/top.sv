@@ -48,10 +48,13 @@ module core_top #(
 
     // お手本（Veryl）命名に統一
 
-    i_membus #(
-        .DATA_WIDTH(ILEN),
+    Membus #(
+        .DATA_WIDTH(MEMBUS_DATA_WIDTH),
         .ADDR_WIDTH(XLEN)
     ) i_membus();
+
+    core_inst_if #(
+    ) i_membus_core();
 
     Membus #(
         .DATA_WIDTH(MEMBUS_DATA_WIDTH),
@@ -62,8 +65,6 @@ module core_top #(
     ) d_membus_core();
 
     logic memarb_last_i;
-    Addr  memarb_last_iaddr;
-
 
     always_ff @(posedge clk) begin
         // -----------------------------------------------------------
@@ -121,10 +122,8 @@ module core_top #(
     always_ff @(posedge clk or negedge rst) begin
         if (!rst) begin
             memarb_last_i     <= 1'b0;
-            memarb_last_iaddr <= '0;
         end else if (mmio_membus.ready) begin
             memarb_last_i     <= !d_membus.valid;
-            memarb_last_iaddr <= i_membus.addr;
         end
     end
 /*
@@ -161,9 +160,7 @@ module core_top #(
     always_comb begin
         i_membus.ready  = mmio_membus.ready && !d_membus.valid;
         i_membus.rvalid = mmio_membus.rvalid && memarb_last_i;
-        i_membus.rdata  = (memarb_last_iaddr[2] == 1'b0)
-                            ? mmio_membus.rdata[31:0]
-                            : mmio_membus.rdata[63:32];
+        i_membus.rdata  = mmio_membus.rdata;
 
         d_membus.ready  = mmio_membus.ready;
         d_membus.rvalid = mmio_membus.rvalid && !memarb_last_i;
@@ -284,11 +281,18 @@ module core_top #(
         .master (d_membus)
     );
 
+    inst_fetcher fethcer (
+        .clk     (clk),
+        .rst     (rst),
+        .core_if (i_membus_core),
+        .mem_if  (i_membus)
+    );
+
     // コア接続（Veryl命名に完全一致）
     core c (
         .clk      (clk),
         .rst      (rst),
-        .i_membus (i_membus),
+        .i_membus (i_membus_core),
         .d_membus (d_membus_core),
         .led      (led)
     );

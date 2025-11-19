@@ -22,6 +22,7 @@ package corectrl;
 		logic is_load;  //ロード命令である
 		logic is_csr;   //CSR命令である
 		logic is_amo;   //AMO instruction
+		logic is_rvc;
 		logic[2:0] funct3;  //命令のfunct3フィールド
 		logic [6:0] funct7; //命令のfunct7フィールド
 	}InstCtrl;

@@ -4,15 +4,11 @@ import corectrl::*;
 module core (
 	input logic clk,
 	input logic rst,
-	i_membus.master i_membus,
+	core_inst_if.master i_membus,
 	core_data_if.master d_membus,
 	output UIntX led
 );
 
-	typedef struct packed {
-		logic[XLEN-1:0] addr;
-		logic[ILEN-1:0] bits;
-	}if_fifo_type;
 
 	typedef struct packed {
 		Addr addr;
@@ -49,15 +45,6 @@ module core (
 	}wbq_type;
 
 
-	//命令mメモリ->IF の　FIFO
-	logic if_fifo_wready;
-	logic if_fifo_wready_two;
-	logic if_fifo_wvalid;
-	if_fifo_type  if_fifo_wdata;
-	logic if_fifo_rready;
-	logic if_fifo_rvalid;
-	if_fifo_type  if_fifo_rdata;
-
 
 	//ID -> EX FIFO
 	logic exq_wready;
@@ -86,87 +73,13 @@ module core (
 
 //////////////////////// IF Stage /////////////////////
 
-	Addr if_pc;//現在のプログラムカウンタ
-	logic if_is_requested;//現在フェッチ要求中かどうか
-	Addr if_pc_requested;//次に読むアドレス
-
-	Addr if_pc_next;
-	always_comb begin //次のPC作成
-		if_pc_next = if_pc+4;
-	end
-
 	logic control_hazard;
 	Addr control_hazard_pc_next;
 
-	fifo#(
-		.DATA_TYPE(if_fifo_type),
-		.WIDTH(3)
-	)if_fifo(
-		.clk (clk),
-		.rst (rst),
-		.flush(control_hazard),
-		.wready(if_fifo_wready),
-		.wready_two(if_fifo_wready_two),
-		.wvalid(if_fifo_wvalid),
-		.wdata(if_fifo_wdata),
-		.rready(if_fifo_rready),
-		.rvalid(if_fifo_rvalid),
-		.rdata(if_fifo_rdata)
-	);
-
-
 
 	always_comb begin
-		i_membus.valid = if_fifo_wready_two;
-		i_membus.addr = if_pc;
-		i_membus.wen = 1'b0;
-		i_membus.wdata = 'x; //未定 32bit全部X
-	end
-
-
-
-	//命令フェッチステートマシン
-	//
-
-	always_ff @(posedge clk or negedge rst) begin
-		if(!rst)begin
-			if_pc <= INITIAL_PC;
-			if_is_requested <= 1'b0;
-			if_pc_requested <= INITIAL_PC;
-			if_fifo_wvalid <= 1'b0;
-			if_fifo_wdata <= '{default:0};
-		end else begin
-			if(control_hazard)begin
-				if_pc <= control_hazard_pc_next;
-				if_is_requested <= 0;
-				if_fifo_wvalid <= 0;
-			end else begin
-				if(if_is_requested)begin
-					if(i_membus.rvalid)begin
-						if_is_requested <= i_membus.ready && i_membus.valid;
-						if(i_membus.ready && i_membus.valid) begin
-							if_pc <= if_pc_next;
-							if_pc_requested <= if_pc;
-						end
-					end
-				end else begin
-					if(i_membus.ready && i_membus.valid) begin
-						if_is_requested <= 1;
-						if_pc           <= if_pc_next;
-						if_pc_requested <= if_pc;
-					end
-				end
-				if(if_is_requested && i_membus.rvalid)begin
-					if_fifo_wvalid     <= 1;
-					if_fifo_wdata.addr <= if_pc_requested;
-					if_fifo_wdata.bits <= i_membus.rdata;
-				end else begin
-					if (if_fifo_wvalid && if_fifo_wready)begin
-						if_fifo_wvalid <= 0;
-					end
-				end
-			end
-		end
+		i_membus.is_hazard = control_hazard;
+		i_membus.next_pc   = control_hazard_pc_next;
 	end
 
 /*
@@ -182,15 +95,16 @@ module core (
 
 
 ////////////////// ID Stage /////////////////////
-	logic ids_valid = if_fifo_rvalid;
-	Addr ids_pc = if_fifo_rdata.addr;
-	Inst ids_inst_bits = if_fifo_rdata.bits;
+	logic ids_valid = i_membus.rvalid;
+	Addr ids_pc = i_membus.raddr;
+	Inst ids_inst_bits = i_membus.rdata;
 	logic ids_inst_valid;
 	InstCtrl ids_ctrl;
 	UIntX ids_imm;
 
 	inst_decoder decoder (
 		.bits (ids_inst_bits),
+		.is_rvc (i_membus.is_rvc),
 		.valid (ids_inst_valid),
 		.ctrl (ids_ctrl),
 		.imm  (ids_imm)
@@ -198,10 +112,10 @@ module core (
 
 	always_comb begin
 		//ID -> EX
-		if_fifo_rready = exq_wready;
-		exq_wvalid     = if_fifo_rvalid;
-		exq_wdata.addr = if_fifo_rdata.addr;
-		exq_wdata.bits = if_fifo_rdata.bits;
+		i_membus.rready = exq_wready;
+		exq_wvalid     = i_membus.rvalid;
+		exq_wdata.addr = i_membus.raddr;
+		exq_wdata.bits = i_membus.rdata;
 		exq_wdata.ctrl = ids_ctrl;
 		exq_wdata.imm  = ids_imm;
 		// exception
@@ -394,7 +308,7 @@ module core (
 		memq_wdata.br_taken = exs_ctrl.is_jump || inst_is_br(exs_ctrl) && exs_brunit_take;
 		memq_wdata.jump_addr = (inst_is_br(exs_ctrl)) ? exs_pc + exs_imm : exs_alu_result & ~1;
 		// exception
-		instruction_address_misaligned = (memq_wdata.br_taken && memq_wdata.jump_addr[1:0] != 2'b00);
+		instruction_address_misaligned = (IALIGN == 32 && memq_wdata.br_taken && memq_wdata.jump_addr[1:0] != 2'b00);
 		memaddr = exs_ctrl.is_amo ? exs_rs1_data : exs_alu_result;
 		if (inst_is_memop(exs_ctrl)) begin
 			unique case (exs_ctrl.funct3[1:0])
@@ -515,7 +429,7 @@ module core (
 		if (wbs_ctrl.is_lui) begin
 			wbs_wb_data = wbs_imm;
 		end else if (wbs_ctrl.is_jump) begin
-			wbs_wb_data = wbs_pc + (64'd4); // XLEN 64 前提
+			wbs_wb_data = wbs_pc + (wbs_ctrl.is_rvc ? 2 : 4); // XLEN 64 前提
 		end else if (wbs_ctrl.is_load || wbs_ctrl.is_amo) begin
 			wbs_wb_data = wbq_rdata.mem_rdata;
 		end else if (wbs_ctrl.is_csr) begin
@@ -540,79 +454,154 @@ module core (
 	assign led = '0;
 
 	/////////////DEBUG ////////////////
+///////////////////////////////// DEBUG //////////////////////////////////
+`ifdef PRINT_DEBUG
 
-	logic[63:0] clock_count;
+    // ---- ID 管理カウンタ ----
+    logic [63:0] gen_inst_id;
+    logic [63:0] id_inst_id;
+    logic [63:0] ex_inst_id;
+    logic [63:0] mem_inst_id;
+    logic [63:0] wb_inst_id;
 
-`ifdef TEST_MODE
-	always_ff @(posedge clk or negedge rst) begin
-		if(!rst)begin
-			clock_count <= 64'd0;
-		end else begin
-			clock_count <= clock_count + 64'd1;
+    // --- ID は combinational で gen_inst_id を反映 ---
+    always_comb begin
+        id_inst_id = gen_inst_id;
+    end
 
-			$display("");
-			$display("# %d", clock_count);
+    // ---- pipeline inst_id 移動 ----
+    always_ff @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            gen_inst_id <= 64'd0;
+            ex_inst_id  <= 64'd0;
+            mem_inst_id <= 64'd0;
+            wb_inst_id  <= 64'd0;
+        end else begin
+            if (i_membus.rready && i_membus.rvalid) begin
+                gen_inst_id <= gen_inst_id + 1;
+            end
+            if (exq_wready && exq_wvalid) begin
+                ex_inst_id <= id_inst_id;
+            end
+            if (memq_wready && memq_wvalid) begin
+                mem_inst_id <= ex_inst_id;
+            end
+            if (wbq_wready && wbq_wvalid) begin
+                wb_inst_id <= mem_inst_id;
+            end
+        end
+    end
 
+    // ---- clock カウンタ ----
+    logic [63:0] clock_count;
 
-			$display("IF ------");
-			$display("     pc : %h", if_pc);
-			$display(" is req : %b", if_is_requested);
-			$display(" pc req : %h", if_pc_requested);
-			$display("ID ------");
-			if(ids_valid) begin
-				$display("  %h : %h", ids_pc, if_fifo_rdata.bits);
-                $display("  itype : %b", ids_ctrl.itype);
-                $display("  imm   : %h", ids_imm);
-			end
-			$display("EX -----");
-			if(exs_valid)begin
-				$display("  %h : %h", exq_rdata.addr, exq_rdata.bits);
-				$display("  op1     : %h", exs_op1);
-				$display("  op2     : %h", exs_op2);
-				$display("  alu     : %h", exs_alu_result);
-				$display("  rs1/rs2 : %0d/%0d", exs_rs1_addr, exs_rs2_addr);
-				$display("  reg1/reg2 : %h/%h", exs_rs1_data, exs_rs2_data);
-				$display("  dhazard : %b", exs_data_hazard);
-				$display("  mem_hazard=%b wb_hazard=%b", exs_mem_data_hazard, exs_wb_data_hazard);
-				$display("  muldiv_stall : %b", exs_muldiv_stall);
-				$display("  wbs_valid=%b wbs_ctrl.rwb_en=%b wbs_rd=%0d",
-						wbs_valid, wbs_ctrl.rwb_en, wbs_rd_addr);
-				$display("  exq_rready=%d memq_wready=%d if_fifo_rready=%d",
-                            exq_rready,memq_wready,if_fifo_rready);
-				if (exs_ctrl.is_muldiv && exs_muldiv_stall)begin
-					$display(" muldiv result : %h",exs_muldiv_result);
-				end
-				if (inst_is_br(exs_ctrl))begin
-					$display("  br take : ", exs_brunit_take);
-				end
-			end
-			$display("MEM -----");
-			if (mems_valid)begin
-                $display("  %h : %h", memq_rdata.addr, memq_rdata.bits);
-				$display("	mem stall : %h", memu_stall);
-				$display("	mem rdata : %h", memu_rdata);
-				if (mems_ctrl.is_csr || csru_raise_trap)begin
-					$display(" csr rdata : %h", csru_rdata);
-					$display(" csr trap  : %b", csru_raise_trap);
-					$display(" csr vec   : %h", csru_trap_vector);
-				end
-				if (memq_rdata.br_taken)begin
-					$display(" JUMP TO : %h", memq_rdata.jump_addr);
-				end
-				if(inst_is_memop(mems_ctrl)) begin
-					$display("mem.memaddr,h,%b", memu_addr);
-				end
-			end
-			$display("WB ----");
-			if(wbs_valid) begin
-				$display("  %h : %h", wbq_rdata.addr, wbq_rdata.bits);
-				if(wbs_ctrl.rwb_en && !wbq_rdata.raise_trap) begin
-					$display("  reg[%d] <= %h", wbs_rd_addr, wbs_wb_data);
-				end
-			end
-		end
-	end
+    always_ff @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            clock_count <= 64'd1;
+        end else begin
+            clock_count <= clock_count + 1;
+
+            $display("");
+            $display("clock,%0d", clock_count);
+
+            // ---------------- ID ----------------
+            $display("id.valid,b,%b", ids_valid);
+            if (ids_valid) begin
+                $display("id.inst_id,d,%0d", id_inst_id);
+                $display("id.addr,h,%h", ids_pc);
+                $display("id.inst,h,%h", ids_inst_bits);
+                $display("id.itype,b,%b", ids_ctrl.itype);
+                $display("id.imm,h,%h", ids_imm);
+                $display("id.expt.valid,b,%b", exq_wdata.expt.valid);
+                if (exq_wdata.expt.valid) begin
+                    $display("id.expt.cause,d,%0d", exq_wdata.expt.cause);
+                    $display("id.expt.value,d,%0d", exq_wdata.expt.value);
+                end
+            end
+
+            // ---------------- EX ----------------
+            $display("ex.valid,b,%b", exs_valid);
+            if (exs_valid) begin
+                $display("ex.inst_id,d,%0d", ex_inst_id);
+                $display("ex.addr,h,%h", exq_rdata.addr);
+                $display("ex.inst,h,%h", exq_rdata.bits);
+                $display("ex.expt.valid,b,%b", exq_rdata.expt.valid);
+                if (exq_rdata.expt.valid) begin
+                    $display("ex.expt.cause,d,%0d", exq_rdata.expt.cause);
+                    $display("ex.expt.value,d,%0d", exq_rdata.expt.cause);
+                end
+                $display("ex.op1,h,%h", exs_op1);
+                $display("ex.op2,h,%h", exs_op2);
+                $display("ex.alu,h,%h", exs_alu_result);
+                $display("ex.dhazard,b,%b", exs_data_hazard);
+                $display("ex.muldiv.stall,b,%b", exs_muldiv_stall);
+
+                if (exs_ctrl.is_muldiv && exs_muldiv_rvalid) begin
+                    $display("ex.muldiv.result,h,%h", exs_muldiv_result);
+                end
+                if (inst_is_br(exs_ctrl)) begin
+                    $display("ex.br take,b,%b", exs_brunit_take);
+                end
+            end
+
+            // ---------------- MEM ----------------
+            $display("mem.valid,b,%b", mems_valid);
+            if (mems_valid) begin
+                $display("mem.inst_id,d,%0d", mem_inst_id);
+                $display("mem.addr,h,%h", memq_rdata.addr);
+                $display("mem.inst,h,%h", memq_rdata.bits);
+                $display("mem.stall,b,%b", memu_stall);
+
+                if (inst_is_memop(mems_ctrl)) begin
+                    $display("mem.is_load,b,%b", mems_ctrl.is_load);
+                    $display("mem.memaddr,h,%h", memu_addr);
+
+                    if (mems_ctrl.is_load) begin
+                        if (!memu_stall) begin
+                            $display("mem.rdata,h,%h", memu_rdata);
+                        end
+                    end else begin
+                        $display("mem.wdata,h,%h", memq_rdata.rs2_data);
+                    end
+                end
+
+                if (mems_ctrl.is_csr || csru_raise_trap) begin
+                    $display("mem.csr.rdata,h,%h", csru_rdata);
+                    $display("mem.csr.trap,b,%b", csru_raise_trap);
+                    $display("mem.csr.vec,h,%h", csru_trap_vector);
+                end
+
+                if (memq_rdata.br_taken) begin
+                    $display("mem.jump.addr,h,%h", memq_rdata.jump_addr);
+                end
+            end
+
+            // ---------------- WB ----------------
+            $display("wb.valid,b,%b", wbs_valid);
+            if (wbs_valid) begin
+                $display("wb.inst_id,d,%0d", wb_inst_id);
+                $display("wb.addr,h,%h", wbq_rdata.addr);
+                $display("wb.inst,h,%h", wbq_rdata.bits);
+                $display("wb.trap,b,%b", wbq_rdata.raise_trap);
+
+                if (wbs_ctrl.rwb_en && !wbq_rdata.raise_trap) begin
+                    $display("wb.rd.wen,b,%b", wbs_ctrl.rwb_en);
+                    $display("wb.rd.addr,d,%0d", wbs_rd_addr);
+                    $display("wb.rd.data,h,%h", wbs_wb_data);
+                end
+            end
+
+            // ---------------- flush ----------------
+            if (control_hazard) begin
+                $display("flush.if,b,1");
+                $display("flush.id,b,1");
+                $display("flush.ex,b,1");
+            end
+        end
+    end
+
 `endif
+
 	////////////////////////FIFO/////////////////////
 	fifo#(
 		.DATA_TYPE(exq_type),

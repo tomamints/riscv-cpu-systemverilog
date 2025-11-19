@@ -3,6 +3,7 @@ import corectrl::*;
 
 module inst_decoder(
 	input  Inst     bits,
+	input  logic    is_rvc,
 	output logic    valid,
 	output InstCtrl ctrl,
 	output UIntX    imm
@@ -26,81 +27,85 @@ module inst_decoder(
 	localparam T = 1'b1;
 	localparam F = 1'b0;
 
+    logic valid_pre;
+
 	always_comb begin
 		unique case (op)
 			OP_LUI,
 			OP_AUIPC,
 			OP_JAL,
 			OP_JALR: begin
-				valid = T;
+				valid_pre = T;
 			end
 
 			OP_BRANCH: begin
-				valid = (f3 != 3'b010) && (f3 != 3'b011);
+				valid_pre = (f3 != 3'b010) && (f3 != 3'b011);
 			end
 
 			OP_LOAD: begin
-				valid = (f3 != 3'b111);
+				valid_pre = (f3 != 3'b111);
 			end
 
 			OP_STORE: begin
-				valid = (f3[2] == 1'b0);
+				valid_pre = (f3[2] == 1'b0);
 			end
 
 			OP_OP: begin
 				unique case (f7)
-					7'b0000000: valid = T; // RV64I
-					7'b0100000: valid = (f3 == 3'b000) || (f3 == 3'b101); // SUB, SRA
-					7'b0000001: valid = T; // RV64M (MUL/DIV/REM)
-					default   : valid = F;
+					7'b0000000: valid_pre = T; // RV64I
+					7'b0100000: valid_pre = (f3 == 3'b000) || (f3 == 3'b101); // SUB, SRA
+					7'b0000001: valid_pre = T; // RV64M (MUL/DIV/REM)
+					default   : valid_pre = F;
 				endcase
 			end
 
 			OP_OP_IMM: begin
 				unique case (f3)
-					3'b001: valid = (f7[6:1] == 6'b000000); // SLLI
-					3'b101: valid = (f7[6:1] == 6'b000000) || (f7[6:1] == 6'b010000); // SRLI,SRAI
-					default: valid = T;
+					3'b001: valid_pre = (f7[6:1] == 6'b000000); // SLLI
+					3'b101: valid_pre = (f7[6:1] == 6'b000000) || (f7[6:1] == 6'b010000); // SRLI,SRAI
+					default: valid_pre = T;
 				endcase
 			end
 
 			OP_OP_32: begin
 				unique case (f7)
-					7'b0000001: valid = (f3 == 3'b000) || (f3[2] == 1'b1); // MULW,DIVW,REMW
-					7'b0000000: valid = (f3 == 3'b000) || (f3 == 3'b001) || (f3 == 3'b101); // ADDW,SLLW,SRLW
-					7'b0100000: valid = (f3 == 3'b000) || (f3 == 3'b101); // SUBW,SRAW
-					default   : valid = F;
+					7'b0000001: valid_pre = (f3 == 3'b000) || (f3[2] == 1'b1); // MULW,DIVW,REMW
+					7'b0000000: valid_pre = (f3 == 3'b000) || (f3 == 3'b001) || (f3 == 3'b101); // ADDW,SLLW,SRLW
+					7'b0100000: valid_pre = (f3 == 3'b000) || (f3 == 3'b101); // SUBW,SRAW
+					default   : valid_pre = F;
 				endcase
 			end
 
 			OP_OP_IMM_32: begin
 				unique case (f3)
-					3'b000: valid = T; // ADDIW
-					3'b001: valid = (f7 == 7'b0000000); // SLLIW
-					3'b101: valid = (f7 == 7'b0000000) || (f7 == 7'b0100000); // SRLIW,SRAIW
-					default: valid = F;
+					3'b000: valid_pre = T; // ADDIW
+					3'b001: valid_pre = (f7 == 7'b0000000); // SLLIW
+					3'b101: valid_pre = (f7 == 7'b0000000) || (f7 == 7'b0100000); // SRLIW,SRAIW
+					default: valid_pre = F;
 				endcase
 			end
 
 			OP_SYSTEM: begin
-				valid =  (f3 != 3'b000 && f3 != 3'b100) || // CSR系
+				valid_pre =  (f3 != 3'b000 && f3 != 3'b100) || // CSR系
 						(bits == 32'h00000073)        || // ECALL
 						(bits == 32'h00100073)        || // EBREAK
 						(bits == 32'h30200073);          // MRET
 			end
 
 			OP_MISC_MEM: begin
-				valid = T; // FENCE
+				valid_pre = T; // FENCE
 			end
 
 			OP_AMO: begin
-				valid = (f3 == 3'b010) || (f3 == 3'b011); //AMO
+				valid_pre = (f3 == 3'b010) || (f3 == 3'b011); //AMO
 			end
 
 			default: begin
-				valid = F;
+				valid_pre = F;
 			end
 		endcase
+
+		valid = valid_pre && ((IALIGN == 16) || (!is_rvc));
 
 		case (op)
 			OP_LUI,OP_AUIPC        : imm = imm_u;
@@ -122,6 +127,7 @@ module inst_decoder(
 
 		ctrl.funct3 = f3;
 		ctrl.funct7 = f7;
+		ctrl.is_rvc = is_rvc;
 
 		ctrl.is_csr = F;
 

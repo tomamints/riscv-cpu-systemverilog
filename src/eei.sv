@@ -3,6 +3,7 @@ package eei;
 	//定数定義
 	localparam int unsigned XLEN = 64; //レジスタのながさ
 	localparam int unsigned ILEN = 32; //命令の最大幅（今回は32、圧縮は16?）
+	localparam int unsigned IALIGN = 16; //C命令
 
 	typedef logic [XLEN-1:0] UIntX;
 	typedef logic [31:0]     UInt32;
@@ -59,7 +60,7 @@ package eei;
         MINU = 5'b11000,
         MAXU = 5'b11100
 	} AMOOp;
-	
+
 	typedef enum logic [11:0]{
 		MTVEC = 12'h305,
 		MEPC = 12'h341,

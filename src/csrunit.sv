@@ -19,7 +19,7 @@ module csrunit (
 );
 
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffc;
-	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffc;
+	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
 
