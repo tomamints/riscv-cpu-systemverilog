@@ -14,6 +14,8 @@ package eei;
 	typedef logic signed [31:0] SInt32;
 	typedef logic signed [63:0] SInt64;
 
+	localparam UIntX MACHINE_IMPLEMENTATION_ID = 1;
+
 	// memory bus data
 	localparam int MEMBUS_DATA_WIDTH = 64;
 
@@ -61,11 +63,34 @@ package eei;
         MAXU = 5'b11100
 	} AMOOp;
 
+	typedef enum logic [1:0] {
+		M = 2'b11,
+		S = 2'b01,
+		U = 2'b00
+	} PrivMode;
+
 	typedef enum logic [11:0]{
-		MTVEC = 12'h305,
-		MEPC = 12'h341,
+		//Machine Infomation Registers
+		MIMPID  = 12'hf13,
+		MHARTID = 12'hf14,
+		//Machine Trap Setup
+		MSTATUS = 12'h300,
+		MISA    = 12'h301,
+		MEDELEG = 12'h302,
+		MIDELEG = 12'h303,
+		MIE     = 12'h304,
+		MTVEC   = 12'h305,
+		MCOUNTREN = 12'h306,
+		//Machine Trap Handling
+		MSCRATCH = 12'h340,
+		MEPC   = 12'h341,
 		MCAUSE = 12'h342,
-		MTVAL = 12'h343,
+		MTVAL  = 12'h343,
+		MIP    = 12'h344,
+		// Machine Counter/Timers
+		MCYCLE = 12'hB00,
+		MINSTRET = 12'hB02,
+		//Custom
 		LED   = 12'h800
 	} CsrAddr;
 

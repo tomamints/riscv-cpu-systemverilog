@@ -382,6 +382,9 @@ module core (
 	UIntX csru_rdata;
 	logic csru_raise_trap;
 	Addr csru_trap_vector;
+	logic csru_trap_return;
+	UInt64 minstret;
+
 	csrunit csru(
 		.clk      (clk),
 		.rst      (rst),
@@ -396,7 +399,9 @@ module core (
 		.rs1_data (memq_rdata.rs1_data),
 		.rdata       (csru_rdata),
 		.raise_trap  (csru_raise_trap),
-		.trap_vector (csru_trap_vector)
+		.trap_vector (csru_trap_vector),
+		.trap_return (csru_trap_return),
+		.minstret (minstret)
 	);
 
 
@@ -411,7 +416,7 @@ module core (
 		wbq_wdata.alu_result = memq_rdata.alu_result;
 		wbq_wdata.mem_rdata = memu_rdata;
 		wbq_wdata.csr_rdata = csru_rdata;
-		wbq_wdata.raise_trap = csru_raise_trap;
+		wbq_wdata.raise_trap = csru_raise_trap && !csru_trap_return;
 	end
 
 	//////////WB Stage //////////
@@ -436,6 +441,16 @@ module core (
 			wbs_wb_data = wbq_rdata.csr_rdata;
 		end else begin
 			wbs_wb_data = wbq_rdata.alu_result;
+		end
+	end
+
+	always_ff @(posedge clk or negedge rst)begin
+		if(!rst)begin
+			minstret <= '0;
+		end else begin
+			if (wbq_rvalid && wbq_rready && !wbq_rdata.raise_trap)begin
+				minstret <= minstret + 1;
+			end
 		end
 	end
 

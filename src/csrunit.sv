@@ -15,15 +15,19 @@ module csrunit (
 	input  UIntX rs1_data,
 	output UIntX rdata,
 	output logic raise_trap,
-	output Addr  trap_vector
+	output Addr  trap_vector,
+	output logic trap_return,
+	input  UInt64  minstret
 );
 
+	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0000) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffc;
+	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
 
-
+	PrivMode mode;
 
 	//CSRR(W|S|C)かどうか
 	logic is_wsc;
@@ -44,7 +48,20 @@ module csrunit (
 		(is_wsc && !will_not_write_csr && (csr_addr[11:10] == 2'b11));
 
 	//CSR register create
-	UIntX mtvec, mepc, mcause, mtval;
+	UIntX misa;
+	assign misa = {
+    2'd2,                                         // MISAの最上位2ビット (MISA[XLEN-1:XLEN-2])
+    1'b0,                                         // 次の1ビット
+    {(XLEN - 2 - 1 - 26){1'b0}},                  // 'repeat XLEN - 28' に相当する0ビットの繰り返し
+                                                  // (XLEN - 28) = XLEN - (2 + 1 + 25) ではなく、
+                                                  // XLEN - (2 + 1 + 26) = XLEN - 29 が正しいため、
+                                                  // XLEN - 2 - 1 - 26 = XLEN - 29 で計算します。
+    26'b00000000000001000100000101                // MISAの最下位26ビット
+	};
+
+	UIntX mhartid = 0;
+	UIntX mstatus, mtvec, mscratch, mepc, mcause, mtval;
+	UInt64 mcycle;
 
 	//Exception
 	logic raise_expt;
@@ -71,9 +88,11 @@ module csrunit (
 		end
 	end
 
+	// Trap Return
+	assign trap_return = valid && is_mret && !raise_expt;
 
 	//Trap
-	assign raise_trap  = raise_expt || (valid && is_mret);
+	assign raise_trap  = raise_expt || trap_return;
 	UIntX  trap_cause ;
 	assign trap_cause = expt_cause;
 	assign trap_vector = (raise_expt) ? mtvec : mepc;
@@ -86,19 +105,28 @@ module csrunit (
 	always_comb begin
 		// read
 		case (csr_addr)
-			MTVEC : rdata = mtvec;
-			MEPC  : rdata = mepc;
-			MCAUSE: rdata = mcause;
-			MTVAL : rdata = mtval;
+			MISA    : rdata = misa;
+			MIMPID  : rdata = MACHINE_IMPLEMENTATION_ID;
+			MHARTID : rdata = mhartid;
+			MSTATUS : rdata = mstatus;
+			MTVEC   : rdata = mtvec;
+			MCYCLE  : rdata = mcycle;
+			MINSTRET: rdata = minstret;
+			MSCRATCH: rdata = mscratch;
+			MEPC    : rdata = mepc;
+			MCAUSE  : rdata = mcause;
+			MTVAL   : rdata = mtval;
 			default       : rdata = 'x;
 		endcase
 
 		// write mask
 		case (csr_addr)
-			MTVEC : wmask = MTVEC_WMASK;
-			MEPC  : wmask = MEPC_WMASK;
-			MCAUSE: wmask = MCAUSE_WMASK;
-			MTVAL : wmask = MTVAL_WMASK;
+			MSTATUS  : wmask = MSTATUS_WMASK;
+			MTVEC    : wmask = MTVEC_WMASK;
+			MSCRATCH : wmask = MSCRATCH_WMASK;
+			MEPC     : wmask = MEPC_WMASK;
+			MCAUSE   : wmask = MCAUSE_WMASK;
+			MTVAL    : wmask = MTVAL_WMASK;
 			default       : wmask = '0;
 		endcase
 
@@ -125,11 +153,16 @@ module csrunit (
 
 	always_ff @(posedge clk or negedge rst) begin
 		if (!rst) begin
-			mtvec  <= '0;
-			mepc   <= '0;
-			mcause <= '0;
-			mtval  <= '0;
+			mode     <=  M;
+			mstatus  <= '0;
+			mtvec    <= '0;
+			mscratch <= '0;
+			mcycle   <= '0;
+			mepc     <= '0;
+			mcause   <= '0;
+			mtval    <= '0;
 		end else begin
+			mcycle += 1;
 			if (valid) begin
 				if (raise_trap) begin
 					if (raise_expt) begin
@@ -140,11 +173,13 @@ module csrunit (
 				end else begin
 					if (is_wsc) begin
 						case (csr_addr)
-							MTVEC : mtvec  <= wdata;
-							MEPC  : mepc   <= wdata;
-							MCAUSE: mcause <= wdata;
-							MTVAL : mtval  <= wdata;
-							default       : /* do nothing */ ;
+							MSTATUS  : mstatus  <= wdata;
+							MTVEC    : mtvec    <= wdata;
+							MSCRATCH : mscratch <= wdata;
+							MEPC     : mepc     <= wdata;
+							MCAUSE   : mcause   <= wdata;
+							MTVAL    : mtval    <= wdata;
+							default  : /* do nothing */ ;
 						endcase
 					end
 				end
