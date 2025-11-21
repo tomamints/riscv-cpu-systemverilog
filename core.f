@@ -7,6 +7,7 @@ src/inst_gen_pkg.sv
 src/membus_if.sv
 src/core_inst_if.sv
 src/core_data_if.sv
+src/aclint_if.sv
 
 # small modules used by many places
 src/fifo.sv
@@ -14,6 +15,7 @@ src/rvc_converter.sv
 
 # major modules
 src/memory.sv
+src/aclint_memory.sv
 src/alu.sv
 src/brunit.sv
 src/csrunit.sv

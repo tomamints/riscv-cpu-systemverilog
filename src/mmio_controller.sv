@@ -16,14 +16,16 @@ module mmio_controller (
     Membus.slave  req_core,
     Membus.master ram_membus,
     Membus.master rom_membus,
-    Membus.master dbg_membus
+    Membus.master dbg_membus,
+    Membus.master aclint_membus
 );
 
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         UNKNOWN,
         RAM,
         ROM,
-        DEBUG
+        DEBUG,
+        ACLINT
     } Device;
 
     // outstanding リクエスト保持
@@ -50,11 +52,13 @@ module mmio_controller (
         reset_membus_master(ram_membus.valid, ram_membus.addr, ram_membus.wen, ram_membus.wdata, ram_membus.wmask);
         reset_membus_master(rom_membus.valid, rom_membus.addr, rom_membus.wen, rom_membus.wdata, rom_membus.wmask);
         reset_membus_master(dbg_membus.valid, dbg_membus.addr, dbg_membus.wen, dbg_membus.wdata, dbg_membus.wmask);
+        reset_membus_master(aclint_membus.valid, aclint_membus.addr, aclint_membus.wen, aclint_membus.wdata, aclint_membus.wmask);
     endfunction
 
     function Device get_device (input Addr addr);
         if (DBG_ADDR <= addr && addr <= DBG_ADDR + 64'd7) return DEBUG;
         if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ROM_END)) return ROM;
+        if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ACLINT_END)) return ACLINT;
         if (addr >= MMAP_RAM_BEGIN) return RAM;
         return UNKNOWN;
     endfunction
@@ -88,6 +92,13 @@ module mmio_controller (
                 dbg_membus.wmask = wmask;
                 dbg_membus.addr  = addr - DBG_ADDR;
             end
+            ACLINT: begin
+                aclint_membus.valid = valid;
+                aclint_membus.wen   = wen;
+                aclint_membus.wdata = wdata;
+                aclint_membus.wmask = wmask;
+                aclint_membus.addr  = addr - MMAP_ACLINT_BEGIN;
+            end
             default: ; // UNKNOWN は捨てる
         endcase
     endfunction
@@ -97,6 +108,7 @@ module mmio_controller (
             RAM: return ram_membus.ready;
             ROM: return rom_membus.ready;
             DEBUG: return dbg_membus.ready;
+            ACLINT: return aclint_membus.ready;
             default: return 1'b0;
         endcase
     endfunction
@@ -106,6 +118,7 @@ module mmio_controller (
             RAM: return ram_membus.rvalid;
             ROM: return rom_membus.rvalid;
             DEBUG: return dbg_membus.rvalid;
+            ACLINT: return aclint_membus.rvalid;
             default: return 1'b0;
         endcase
     endfunction
@@ -130,6 +143,10 @@ module mmio_controller (
             DEBUG: begin
                 rvalid = dbg_membus.rvalid;
                 rdata  = dbg_membus.rdata;
+            end
+            ACLINT: begin
+                rvalid = aclint_membus.rvalid;
+                rdata  = aclint_membus.rdata;
             end
             default: ; // UNKNOWN
         endcase

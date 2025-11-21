@@ -6,7 +6,8 @@ module core (
 	input logic rst,
 	core_inst_if.master i_membus,
 	core_data_if.master d_membus,
-	output UIntX led
+	output UIntX led,
+	aclint_if.slave aclint
 );
 
 
@@ -401,7 +402,8 @@ module core (
 		.raise_trap  (csru_raise_trap),
 		.trap_vector (csru_trap_vector),
 		.trap_return (csru_trap_return),
-		.minstret (minstret)
+		.minstret (minstret),
+		.aclint(aclint)
 	);
 
 

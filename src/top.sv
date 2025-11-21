@@ -34,6 +34,10 @@ module core_top #(
     Membus mmio_ram_membus();
     Membus mmio_rom_membus();
     Membus dbg_membus();
+    Membus aclint_membus();
+
+    aclint_if aclint_core_bus();
+
 
     // 物理メモリIF（word index）
     membus_if #(
@@ -192,24 +196,6 @@ module core_top #(
         mmio_ram_membus.rdata  = ram_membus.rdata;
     end
 
-/*
-    // === DEBUG: RAMのアドレス→インデックス→データ/書き込み可視化 ===
-    always_ff @(posedge clk) begin
-    if (mmio_ram_membus.valid) begin
-        logic [XLEN-1:0]        addr_sub;
-        logic [RAM_ADDR_WIDTH-1:0] idx;
-        addr_sub = mmio_ram_membus.addr;
-        idx      = addr_to_ramaddr(mmio_ram_membus.addr);
-        if (!mmio_ram_membus.wen) begin
-        $display("[RAM-RD] t=%0t addr=%h (addr-MAP=%h) idx=%0d rvalid=%b rdata=%016h",
-                $time, mmio_ram_membus.addr, addr_sub, idx, ram_membus.rvalid, ram_membus.rdata);
-        end else begin
-        $display("[RAM-WR] t=%0t addr=%h (addr-MAP=%h) idx=%0d wmask=%h wdata=%016h",
-                $time, mmio_ram_membus.addr, addr_sub, idx, mmio_ram_membus.wmask, mmio_ram_membus.wdata);
-        end
-    end
-    end
-*/
 
     // mmio <> ROM (read-only)
     always_comb begin
@@ -223,22 +209,6 @@ module core_top #(
         mmio_rom_membus.rdata  = rom_membus.rdata;
     end
 
-    /*
-
-    // === DEBUG: RAMのアドレス→インデックス→データ/書き込み可視化 ===
-   // ===== Debug ROM MMIO handshake monitor =====
-    always_ff @(posedge clk) begin
-        if (rom_membus.valid || rom_membus.rvalid) begin
-            $display("[MMIO-ROM] valid=%b ready=%b rvalid=%b addr=%h rdata=%h",
-                rom_membus.valid,
-                rom_membus.ready,
-                rom_membus.rvalid,
-                rom_membus.addr,
-                rom_membus.rdata
-            );
-        end
-    end
-*/
 
     // RAM/ROM 実体
     memory #(
@@ -263,6 +233,14 @@ module core_top #(
         .membus (rom_membus)
     );
 
+    aclint_memory aclintm (
+        .clk    (clk),
+        .rst    (rst),
+        .membus (aclint_membus),
+        .aclint (aclint_core_bus)
+    );
+
+
     // MMIO コントローラ
     mmio_controller mmioc (
         .clk         (clk),
@@ -271,7 +249,8 @@ module core_top #(
         .req_core    (mmio_membus),
         .ram_membus  (mmio_ram_membus),
         .rom_membus  (mmio_rom_membus),
-        .dbg_membus  (dbg_membus)
+        .dbg_membus  (dbg_membus),
+        .aclint_membus  (aclint_membus)
     );
 
     amounit amou (
@@ -294,7 +273,8 @@ module core_top #(
         .rst      (rst),
         .i_membus (i_membus_core),
         .d_membus (d_membus_core),
-        .led      (led)
+        .led      (led),
+        .aclint   (aclint_core_bus)
     );
 
 endmodule : core_top

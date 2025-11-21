@@ -17,7 +17,8 @@ module csrunit (
 	output logic raise_trap,
 	output Addr  trap_vector,
 	output logic trap_return,
-	input  UInt64  minstret
+	input  UInt64  minstret,
+	aclint_if.slave aclint
 );
 
 	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0000) ;
