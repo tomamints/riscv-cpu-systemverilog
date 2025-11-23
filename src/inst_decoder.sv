@@ -90,7 +90,7 @@ module inst_decoder(
 						(bits == 32'h00000073)        || // ECALL
 						(bits == 32'h00100073)        || // EBREAK
 						(bits == 32'h30200073)        || // MRET
-						(bits == 32'h10500073) //WFI
+						(bits == 32'h10500073); //WFI
 			end
 
 			OP_MISC_MEM: begin

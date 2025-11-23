@@ -37,7 +37,10 @@ module csrunit (
 	assign is_wsc = ctrl.is_csr && ctrl.funct3[1:0] != 0;
 
 	logic is_mret;
-	assign is_mret = (inst_bits == 32'h30200073);
+	assign is_mret = (inst_bits == 32'h10500073);
+
+	logic is_wfi;
+	assign is_wfi = (inst_bits == 32'h10500073);
 
 	// will_not_write_csr: CSRRSI / CSRRCI で rs1=0 のとき → 読み取り専用動作
 	logic will_not_write_csr;
@@ -171,6 +174,9 @@ module csrunit (
 			MEPC    : rdata = mepc;
 			MCAUSE  : rdata = mcause;
 			MTVAL   : rdata = mtval;
+			CYCLE   : rdata = mcycle;
+			TIME    : rdata = aclint.mtime;
+			INSTRET : rdata = minstret;
 			default       : rdata = 'x;
 		endcase
 
@@ -223,7 +229,13 @@ module csrunit (
 			if (valid) begin
 				if (raise_trap) begin
 					if (raise_expt || raise_interrupt) begin
-						mepc   <= pc;
+						if (raise_expt)begin
+							mepc <= pc;
+						end else if (raise_interrupt && is_wfi) begin
+							mepc = pc + 4;
+						end else begin
+							mepc <= pc;
+						end
 						mcause <= trap_cause;
 						if(raise_expt) begin
 							mtval <= expt_value;

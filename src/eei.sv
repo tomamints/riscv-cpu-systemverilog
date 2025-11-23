@@ -99,7 +99,11 @@ package eei;
 		MCYCLE = 12'hB00,
 		MINSTRET = 12'hB02,
 		//Custom
-		LED   = 12'h800
+		LED   = 12'h800,
+		//Unpriviledged Counter/Timers
+		CYCLE = 12'hC00,
+		TIME  = 12'hC01,
+		INSTRET = 12'hC02
 	} CsrAddr;
 
 	typedef enum UIntX{

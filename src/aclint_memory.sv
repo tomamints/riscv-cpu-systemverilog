@@ -15,6 +15,7 @@ module aclint_memory (
     always_comb begin
         aclint.msip = msip0;
         aclint.mtip = mtime >= mtimecmp0;
+        aclint.mtime = mtime;
     end
 
     assign membus.ready = 1;
