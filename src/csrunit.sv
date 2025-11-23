@@ -23,7 +23,7 @@ module csrunit (
 );
 
 	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0088) ;
-	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffc;
+	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
@@ -72,7 +72,7 @@ module csrunit (
 		1'b0, // 0
 		1'b0, // SEIP
 		1'b0, // 0
-		1'b0, // MTIP
+		aclint.mtip, // MTIP
 		1'b0, // 0
 		1'b0, // STIP
 		1'b0, // 0
@@ -91,14 +91,18 @@ module csrunit (
 	assign mstatus_mie = mstatus[3];
 
 	//Interrupt
+	UIntX interrupt_pending;
+	assign interrupt_pending = mip & mie;
 	logic raise_interrupt;
-	assign raise_interrupt =  valid && can_intr && mstatus_mie && (mip & mie) != 0;
+	assign raise_interrupt =  valid && can_intr && mstatus_mie && interrupt_pending != 0;
 
 	UIntX interrupt_cause;
-	assign interrupt_cause = MACHINE_SOFTWARE_INTERRUPT;
-
+	assign interrupt_cause =
+		interrupt_pending[3] ? MACHINE_SOFTWARE_INTERRUPT :
+		interrupt_pending[7] ? MACHINE_TIMER_INTERRUPT :
+							UIntX'(0);
 	Addr interrupt_vector;
-	assign interrupt_vector = mtvec;
+	assign interrupt_vector = (mtvec[0] == 0) ? {mtvec[XLEN-1 : 2], 2'b0} : { (mtvec[XLEN-1:2] + interrupt_cause[XLEN-1-2:0]),2'b0}; //vectored
 
 	//Exception
 	logic raise_expt;
@@ -125,6 +129,9 @@ module csrunit (
 		end
 	end
 
+	Addr expt_vector;
+	assign expt_vector = {mtvec[XLEN-1 : 2], 2'b0};
+
 	// Trap Return
 	assign trap_return = valid && is_mret && !raise_expt && !raise_interrupt;
 
@@ -138,7 +145,7 @@ module csrunit (
                       UIntX'(0);
 
 	assign trap_vector =
-		raise_expt      ? mtvec :
+		raise_expt      ? expt_vector :
 		raise_interrupt ? interrupt_vector :
 		trap_return     ? mepc :
 						UIntX'(0);

@@ -89,7 +89,8 @@ module inst_decoder(
 				valid_pre =  (f3 != 3'b000 && f3 != 3'b100) || // CSR系
 						(bits == 32'h00000073)        || // ECALL
 						(bits == 32'h00100073)        || // EBREAK
-						(bits == 32'h30200073);          // MRET
+						(bits == 32'h30200073)        || // MRET
+						(bits == 32'h10500073) //WFI
 			end
 
 			OP_MISC_MEM: begin
