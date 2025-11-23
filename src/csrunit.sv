@@ -13,6 +13,7 @@ module csrunit (
 	input  logic [11:0] csr_addr,
 	input  logic [4:0]  rs1_addr,
 	input  UIntX rs1_data,
+	input  logic can_intr,
 	output UIntX rdata,
 	output logic raise_trap,
 	output Addr  trap_vector,
@@ -21,12 +22,13 @@ module csrunit (
 	aclint_if.slave aclint
 );
 
-	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0000) ;
+	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0088) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffc;
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
+	localparam UIntX MIE_WMASK  = UIntX'('h0000_0000_0000_0088);
 
 	PrivMode mode;
 
@@ -61,8 +63,42 @@ module csrunit (
 	};
 
 	UIntX mhartid = 0;
-	UIntX mstatus, mtvec, mscratch, mepc, mcause, mtval;
+	UIntX mstatus, mtvec, mie, mip, mscratch, mepc, mcause, mtval;
 	UInt64 mcycle;
+
+	assign mip = {
+		{(XLEN - 12){1'b0}},
+		1'b0, // MEIP
+		1'b0, // 0
+		1'b0, // SEIP
+		1'b0, // 0
+		1'b0, // MTIP
+		1'b0, // 0
+		1'b0, // STIP
+		1'b0, // 0
+		aclint.msip, //MSIP
+		1'b0, // 0
+		1'b0, // SSIP
+		1'b0 // 0
+	};
+
+
+	//mstatus bits
+	logic mstatus_mpie;
+	assign mstatus_mpie = mstatus[7];
+
+	logic mstatus_mie;
+	assign mstatus_mie = mstatus[3];
+
+	//Interrupt
+	logic raise_interrupt;
+	assign raise_interrupt =  valid && can_intr && mstatus_mie && (mip & mie) != 0;
+
+	UIntX interrupt_cause;
+	assign interrupt_cause = MACHINE_SOFTWARE_INTERRUPT;
+
+	Addr interrupt_vector;
+	assign interrupt_vector = mtvec;
 
 	//Exception
 	logic raise_expt;
@@ -90,13 +126,22 @@ module csrunit (
 	end
 
 	// Trap Return
-	assign trap_return = valid && is_mret && !raise_expt;
+	assign trap_return = valid && is_mret && !raise_expt && !raise_interrupt;
 
 	//Trap
-	assign raise_trap  = raise_expt || trap_return;
+	assign raise_trap  = raise_expt || raise_interrupt || trap_return;
+
 	UIntX  trap_cause ;
-	assign trap_cause = expt_cause;
-	assign trap_vector = (raise_expt) ? mtvec : mepc;
+	assign trap_cause =
+    raise_expt      ? expt_cause :
+    raise_interrupt ? interrupt_cause :
+                      UIntX'(0);
+
+	assign trap_vector =
+		raise_expt      ? mtvec :
+		raise_interrupt ? interrupt_vector :
+		trap_return     ? mepc :
+						UIntX'(0);
 
 	UIntX wdata;
 	UIntX wmask;
@@ -111,6 +156,8 @@ module csrunit (
 			MHARTID : rdata = mhartid;
 			MSTATUS : rdata = mstatus;
 			MTVEC   : rdata = mtvec;
+			MIP   : rdata = mip;
+			MIE   : rdata = mie;
 			MCYCLE  : rdata = mcycle;
 			MINSTRET: rdata = minstret;
 			MSCRATCH: rdata = mscratch;
@@ -124,6 +171,7 @@ module csrunit (
 		case (csr_addr)
 			MSTATUS  : wmask = MSTATUS_WMASK;
 			MTVEC    : wmask = MTVEC_WMASK;
+			MIE      : wmask = MIE_WMASK;
 			MSCRATCH : wmask = MSCRATCH_WMASK;
 			MEPC     : wmask = MEPC_WMASK;
 			MCAUSE   : wmask = MCAUSE_WMASK;
@@ -157,6 +205,7 @@ module csrunit (
 			mode     <=  M;
 			mstatus  <= '0;
 			mtvec    <= '0;
+			mie      <= '0;
 			mscratch <= '0;
 			mcycle   <= '0;
 			mepc     <= '0;
@@ -166,16 +215,28 @@ module csrunit (
 			mcycle += 1;
 			if (valid) begin
 				if (raise_trap) begin
-					if (raise_expt) begin
+					if (raise_expt || raise_interrupt) begin
 						mepc   <= pc;
 						mcause <= trap_cause;
-						mtval  <= expt_value;
+						if(raise_expt) begin
+							mtval <= expt_value;
+						end
+						//save mstatus.mie to mstatus.mipe
+						// and set mstatus.mie = 0
+						mstatus[7] <= mstatus[3];
+						mstatus[3] <= 0;
+					end if (trap_return) begin
+						//save mstatus.mie to mstatus.mipe
+						// and set mstatus.mie = 0
+						mstatus[3] <= mstatus[7];
+						mstatus[7] <= 0;
 					end
 				end else begin
 					if (is_wsc) begin
 						case (csr_addr)
 							MSTATUS  : mstatus  <= wdata;
 							MTVEC    : mtvec    <= wdata;
+							MIE      : mie      <= wdata;
 							MSCRATCH : mscratch <= wdata;
 							MEPC     : mepc     <= wdata;
 							MCAUSE   : mcause   <= wdata;

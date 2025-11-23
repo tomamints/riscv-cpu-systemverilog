@@ -108,57 +108,61 @@ module memunit (
 			req_aq     <= '0;
 			req_rl     <= '0;
 			req_funct3 <= '0;
-		end else if (valid)begin
-			case(state)
-				Init: begin
-					if(is_new & inst_is_memop(ctrl))begin
-						state    <= WaitReady;
-						req_wen  <= inst_is_store(ctrl);
-						req_addr <= addr;
-						req_wdata<= rs2 << {addr[2:0],3'b0};
-						case(ctrl.funct3[1:0])
-							2'b00: req_wmask <= 8'b00000001 << addr[2:0];
-							2'b01: begin
-								case (addr[2:0])
-									6: req_wmask <= 8'b11000000;
-									4: req_wmask <= 8'b00110000;
-									2: req_wmask <= 8'b00001100;
-									0: req_wmask <= 8'b00000011;
-									default: req_wmask <= 'x;
-								endcase
-							end
-							2'b10: begin
-								case (addr[2:0])
-									0: req_wmask <= 8'b00001111;
-									4: req_wmask <= 8'b11110000;
-									default: req_wmask <= 'x;
-								endcase
-							end
-							2'b11: req_wmask <= 8'b11111111;
-							default: req_wmask <= 'x;
-						endcase
-						req_is_amo = ctrl.is_amo;
-						req_amoop = AMOOp'(ctrl.funct7[6:2]);
-						req_aq = ctrl.funct7[1];
-						req_rl = ctrl.funct7[0];
-						req_funct3 = ctrl.funct3;
+		end else begin
+			if (!valid)begin
+				state <= Init;
+			end else begin
+				case(state)
+					Init: begin
+						if(is_new & inst_is_memop(ctrl))begin
+							state    <= WaitReady;
+							req_wen  <= inst_is_store(ctrl);
+							req_addr <= addr;
+							req_wdata<= rs2 << {addr[2:0],3'b0};
+							case(ctrl.funct3[1:0])
+								2'b00: req_wmask <= 8'b00000001 << addr[2:0];
+								2'b01: begin
+									case (addr[2:0])
+										6: req_wmask <= 8'b11000000;
+										4: req_wmask <= 8'b00110000;
+										2: req_wmask <= 8'b00001100;
+										0: req_wmask <= 8'b00000011;
+										default: req_wmask <= 'x;
+									endcase
+								end
+								2'b10: begin
+									case (addr[2:0])
+										0: req_wmask <= 8'b00001111;
+										4: req_wmask <= 8'b11110000;
+										default: req_wmask <= 'x;
+									endcase
+								end
+								2'b11: req_wmask <= 8'b11111111;
+								default: req_wmask <= 'x;
+							endcase
+							req_is_amo = ctrl.is_amo;
+							req_amoop = AMOOp'(ctrl.funct7[6:2]);
+							req_aq = ctrl.funct7[1];
+							req_rl = ctrl.funct7[0];
+							req_funct3 = ctrl.funct3;
+						end
 					end
-				end
 
-				WaitReady : begin
-					if(membus.ready)begin
-						state <= WaitValid;
+					WaitReady : begin
+						if(membus.ready)begin
+							state <= WaitValid;
+						end
 					end
-				end
-				WaitValid:begin
-					if(membus.rvalid)begin
-						state <= Init;
+					WaitValid:begin
+						if(membus.rvalid)begin
+							state <= Init;
+						end
 					end
-				end
-				default: begin
-					//nothing
-				end
-			endcase
+					default: begin
+						//nothing
+					end
+				endcase
+			end
 		end
 	end
 endmodule:memunit

@@ -243,8 +243,8 @@ module core (
 
 	logic exs_muldiv_is_requested;
 
-	always_ff @(posedge clk) begin
-		if (rst) begin
+	always_ff @(posedge clk or negedge rst) begin
+		if (!rst) begin
 			exs_muldiv_is_requested <= 1'b0;
 		end else begin
 			// 次のステージに遷移
@@ -264,8 +264,8 @@ module core (
 
 	assign exs_muldiv_stall = exs_ctrl.is_muldiv && !exs_muldiv_rvalid && !exs_muldiv_rvalided;
 
-	always_ff @(posedge clk) begin
-		if (rst) begin
+	always_ff @(posedge clk or negedge rst) begin
+		if (!rst) begin
 			exs_muldiv_rvalided <= 1'b0;
 		end else begin
 			// 次のステージに遷移
@@ -370,7 +370,7 @@ module core (
 	memunit memu (
 		.clk    (clk),
 		.rst    (rst),
-		.valid  (mems_valid && !mems_expt.valid),
+		.valid  (mems_valid && !csru_raise_trap),
 		.is_new (mems_is_new),
 		.ctrl   (mems_ctrl),
 		.addr   (memu_addr),
@@ -398,6 +398,7 @@ module core (
 		.csr_addr (mems_inst_bits[31:20]),
 		.rs1_addr (memq_rdata.rs1_addr),
 		.rs1_data (memq_rdata.rs1_data),
+		.can_intr (mems_is_new),
 		.rdata       (csru_rdata),
 		.raise_trap  (csru_raise_trap),
 		.trap_vector (csru_trap_vector),
