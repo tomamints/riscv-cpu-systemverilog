@@ -16,6 +16,8 @@ package eei;
 
 	localparam UIntX MACHINE_IMPLEMENTATION_ID = 1;
 
+	localparam UInt64 MSTATUS_UXL = 2 << 32;
+
 	// memory bus data
 	localparam int MEMBUS_DATA_WIDTH = 64;
 

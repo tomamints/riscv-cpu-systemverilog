@@ -22,7 +22,7 @@ module csrunit (
 	aclint_if.slave aclint
 );
 
-	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0000_0088) ;
+	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0020_1888) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
@@ -62,7 +62,7 @@ module csrunit (
                                                   // (XLEN - 28) = XLEN - (2 + 1 + 25) ではなく、
                                                   // XLEN - (2 + 1 + 26) = XLEN - 29 が正しいため、
                                                   // XLEN - 2 - 1 - 26 = XLEN - 29 で計算します。
-    26'b00000000000001000100000101                // MISAの最下位26ビット
+    26'b00000100000001000100000101                // MISAの最下位26ビット
 	};
 
 	UIntX mhartid = 0;
@@ -86,6 +86,9 @@ module csrunit (
 	};
 
 
+	PrivMode mstatus_mpp;
+	assign mstatus_mpp = PrivMode'(mstatus[12:11]);
+
 	//mstatus bits
 	logic mstatus_mpie;
 	assign mstatus_mpie = mstatus[7];
@@ -106,6 +109,9 @@ module csrunit (
 							UIntX'(0);
 	Addr interrupt_vector;
 	assign interrupt_vector = (mtvec[0] == 0) ? {mtvec[XLEN-1 : 2], 2'b0} : { (mtvec[XLEN-1:2] + interrupt_cause[XLEN-1-2:0]),2'b0}; //vectored
+
+	PrivMode interrupt_mode;
+	assign interrupt_mode = M;
 
 	//Exception
 	logic raise_expt;
@@ -135,8 +141,13 @@ module csrunit (
 	Addr expt_vector;
 	assign expt_vector = {mtvec[XLEN-1 : 2], 2'b0};
 
+	PrivMode expt_mode;
+	assign expt_mode = M;
+
 	// Trap Return
 	assign trap_return = valid && is_mret && !raise_expt && !raise_interrupt;
+	PrivMode trap_return_mode;
+	assign trap_return_mode = mstatus_mpp;
 
 	//Trap
 	assign raise_trap  = raise_expt || raise_interrupt || trap_return;
@@ -152,6 +163,15 @@ module csrunit (
 		raise_interrupt ? interrupt_vector :
 		trap_return     ? mepc :
 						UIntX'(0);
+
+	PrivMode trap_mode_next;
+	assign trap_mode_next =
+		raise_expt      ? expt_mode :
+		raise_interrupt ? interrupt_mode :
+		trap_return     ? trap_return_mode :
+						  U;   // enum名は環境に合わせて
+
+
 
 	UIntX wdata;
 	UIntX wmask;
@@ -244,16 +264,21 @@ module csrunit (
 						// and set mstatus.mie = 0
 						mstatus[7] <= mstatus[3];
 						mstatus[3] <= 0;
+						// save current priviledge level to mstatus.mpp
+						mstatus[12:11] <= mode;
 					end if (trap_return) begin
 						//save mstatus.mie to mstatus.mipe
 						// and set mstatus.mie = 0
 						mstatus[3] <= mstatus[7];
 						mstatus[7] <= 0;
+						// set mstatus.mpp = U (least priviledge level)
+						mstatus[12:11] <= U;
 					end
+					mode <= trap_mode_next;
 				end else begin
 					if (is_wsc) begin
 						case (csr_addr)
-							MSTATUS  : mstatus  <= wdata;
+							MSTATUS  : mstatus  <= validate_mstatus(mstatus, wdata);
 							MTVEC    : mtvec    <= wdata;
 							MIE      : mie      <= wdata;
 							MSCRATCH : mscratch <= wdata;
@@ -267,4 +292,20 @@ module csrunit (
 			end
 		end
 	end
+	function automatic UIntX validate_mstatus(
+		input UIntX mstatus,
+		input UIntX wdata
+	);
+		UIntX result;
+		result = wdata;
+
+		// MPP: only M(11) or U(00) allowed
+		if (wdata[12:11] != M &&
+			wdata[12:11] != U)
+		begin
+			result[12:11] = mstatus[12:11];
+		end
+
+		return result;
+	endfunction
 endmodule : csrunit
