@@ -129,7 +129,8 @@ module core (
 		end else if (ids_inst_bits == 32'h00000073) begin
 			//ECALL
 			exq_wdata.expt.valid = 1;
-			exq_wdata.expt.cause = ENVIRONMENT_CALL_FROM_M_MODE;
+			exq_wdata.expt.cause = ENVIRONMENT_CALL_FROM_U_MODE;
+			exq_wdata.expt.cause[1:0] = csru_priv_mode; //adjust mode
 			exq_wdata.expt.value = 0;
 		end else if (ids_inst_bits == 32'h00100073) begin
 			//EBREAK
@@ -380,6 +381,7 @@ module core (
 		.membus (d_membus)
 	);
 
+	PrivMode csru_priv_mode;
 	UIntX csru_rdata;
 	logic csru_raise_trap;
 	Addr csru_trap_vector;
@@ -399,7 +401,8 @@ module core (
 		.rs1_addr (memq_rdata.rs1_addr),
 		.rs1_data (memq_rdata.rs1_data),
 		.can_intr (mems_is_new),
-		.rdata       (csru_rdata),
+		.rdata    (csru_rdata),
+		.mode     (csru_priv_mode),
 		.raise_trap  (csru_raise_trap),
 		.trap_vector (csru_trap_vector),
 		.trap_return (csru_trap_return),

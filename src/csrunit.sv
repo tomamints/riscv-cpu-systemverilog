@@ -15,6 +15,7 @@ module csrunit (
 	input  UIntX rs1_data,
 	input  logic can_intr,
 	output UIntX rdata,
+	output PrivMode mode,
 	output logic raise_trap,
 	output Addr  trap_vector,
 	output logic trap_return,
@@ -24,13 +25,12 @@ module csrunit (
 
 	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0020_1888) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
+	localparam UIntX MCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MIE_WMASK  = UIntX'('h0000_0000_0000_0088);
-
-	PrivMode mode;
 
 	//CSRR(W|S|C)かどうか
 	logic is_wsc;
@@ -53,6 +53,24 @@ module csrunit (
 	assign expt_write_readonly_csr =
 		(is_wsc && !will_not_write_csr && (csr_addr[11:10] == 2'b11));
 
+	logic expt_csr_priv_violation;
+	assign expt_csr_priv_violation = is_wsc && (csr_addr[9:8] > mode);
+
+	logic expt_zicntr_priv;
+	logic zicntr_denied;
+	assign zicntr_denied =
+		(csr_addr == CYCLE)   ? !mcounteren[0] :
+		(csr_addr == TIME)    ? !mcounteren[1] :
+		(csr_addr == INSTRET) ? !mcounteren[2] :
+										1'b0;
+
+	assign expt_zicntr_priv =
+		is_wsc &&
+		(mode == U) &&
+		zicntr_denied;
+
+
+
 	//CSR register create
 	UIntX misa;
 	assign misa = {
@@ -67,6 +85,7 @@ module csrunit (
 
 	UIntX mhartid = 0;
 	UIntX mstatus, mtvec, mie, mip, mscratch, mepc, mcause, mtval;
+	UInt32 mcounteren;
 	UInt64 mcycle;
 
 	assign mip = {
@@ -100,7 +119,7 @@ module csrunit (
 	UIntX interrupt_pending;
 	assign interrupt_pending = mip & mie;
 	logic raise_interrupt;
-	assign raise_interrupt =  valid && can_intr && mstatus_mie && interrupt_pending != 0;
+	assign raise_interrupt =  valid && can_intr && (mode != M || mstatus_mie) && interrupt_pending != 0;
 
 	UIntX interrupt_cause;
 	assign interrupt_cause =
@@ -115,12 +134,16 @@ module csrunit (
 
 	//Exception
 	logic raise_expt;
-	assign raise_expt = valid && (expt_info.valid || expt_write_readonly_csr);
+	assign raise_expt = valid && (expt_info.valid || expt_write_readonly_csr || expt_csr_priv_violation || expt_zicntr_priv);
 	UIntX expt_cause ;
 	always_comb begin
 		if(expt_info.valid) begin
 			expt_cause = expt_info.cause;
 		end else if (expt_write_readonly_csr) begin
+			expt_cause = ILLEGAL_INSTRUCTION;
+		end else if (expt_csr_priv_violation) begin
+			expt_cause = ILLEGAL_INSTRUCTION;
+		end else if (expt_zicntr_priv) begin
 			expt_cause = ILLEGAL_INSTRUCTION;
 		end else begin
 			expt_cause = '0;
@@ -188,6 +211,7 @@ module csrunit (
 			MTVEC   : rdata = mtvec;
 			MIP   : rdata = mip;
 			MIE   : rdata = mie;
+			MCOUNTEREN   : rdata = {{(XLEN-32){1'b0}},mcounteren};
 			MCYCLE  : rdata = mcycle;
 			MINSTRET: rdata = minstret;
 			MSCRATCH: rdata = mscratch;
@@ -205,6 +229,7 @@ module csrunit (
 			MSTATUS  : wmask = MSTATUS_WMASK;
 			MTVEC    : wmask = MTVEC_WMASK;
 			MIE      : wmask = MIE_WMASK;
+			MCOUNTEREN : wmask = MCOUNTEREN_WMASK;
 			MSCRATCH : wmask = MSCRATCH_WMASK;
 			MEPC     : wmask = MEPC_WMASK;
 			MCAUSE   : wmask = MCAUSE_WMASK;
@@ -236,9 +261,10 @@ module csrunit (
 	always_ff @(posedge clk or negedge rst) begin
 		if (!rst) begin
 			mode     <=  M;
-			mstatus  <= '0;
+			mstatus  <=  MSTATUS_UXL;
 			mtvec    <= '0;
 			mie      <= '0;
+			mcounteren <= '0;
 			mscratch <= '0;
 			mcycle   <= '0;
 			mepc     <= '0;
@@ -281,6 +307,7 @@ module csrunit (
 							MSTATUS  : mstatus  <= validate_mstatus(mstatus, wdata);
 							MTVEC    : mtvec    <= wdata;
 							MIE      : mie      <= wdata;
+							MCOUNTEREN : mcounteren <= wdata[31:0];
 							MSCRATCH : mscratch <= wdata;
 							MEPC     : mepc     <= wdata;
 							MCAUSE   : mcause   <= wdata;
