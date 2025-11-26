@@ -23,7 +23,7 @@ module csrunit (
 	aclint_if.slave aclint
 );
 
-	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0020_1888) ;
+	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0020_19aa) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
 	localparam UIntX MCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
@@ -31,6 +31,19 @@ module csrunit (
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MIE_WMASK  = UIntX'('h0000_0000_0000_0088);
+
+	localparam UIntX SSTATUS_WMASK  = UIntX'('h0000_0000_0000_0122);
+	localparam UIntX SCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
+	localparam UIntX STVEC_WMASK  = 'hffff_ffff_ffff_fffd;
+	localparam UIntX SSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
+	localparam UIntX SEPC_WMASK   = 'hffff_ffff_ffff_fffe;
+	localparam UIntX SCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
+	localparam UIntX STVAL_WMASK  = 'hffff_ffff_ffff_ffff;
+
+
+	//read masks
+	localparam UIntX SSTATUS_RMASK  = UIntX'('h8000_0003_018f_e762);
+
 
 	//CSRR(W|S|C)かどうか
 	logic is_wsc;
@@ -66,7 +79,7 @@ module csrunit (
 
 	assign expt_zicntr_priv =
 		is_wsc &&
-		(mode == U) &&
+		(mode <= S) &&
 		zicntr_denied;
 
 
@@ -80,7 +93,7 @@ module csrunit (
                                                   // (XLEN - 28) = XLEN - (2 + 1 + 25) ではなく、
                                                   // XLEN - (2 + 1 + 26) = XLEN - 29 が正しいため、
                                                   // XLEN - 2 - 1 - 26 = XLEN - 29 で計算します。
-    26'b00000100000001000100000101                // MISAの最下位26ビット
+    26'b00000101000001000100000101                // MISAの最下位26ビット
 	};
 
 	UIntX mhartid = 0;
@@ -115,6 +128,12 @@ module csrunit (
 	logic mstatus_mie;
 	assign mstatus_mie = mstatus[3];
 
+	//Supevisor mode CSR
+	UIntX  sstatus , stvec, sscratch, sepc, scause, stval;
+	assign sstatus = mstatus & SSTATUS_RMASK;
+	UInt32 scounteren;
+
+
 	//Interrupt
 	UIntX interrupt_pending;
 	assign interrupt_pending = mip & mie;
@@ -126,8 +145,14 @@ module csrunit (
 		interrupt_pending[3] ? MACHINE_SOFTWARE_INTERRUPT :
 		interrupt_pending[7] ? MACHINE_TIMER_INTERRUPT :
 							UIntX'(0);
+
+	Addr interrupt_xtvec;
+	assign interrupt_xtvec = (interrupt_mode == M) ? mtvec : stvec;
+
 	Addr interrupt_vector;
-	assign interrupt_vector = (mtvec[0] == 0) ? {mtvec[XLEN-1 : 2], 2'b0} : { (mtvec[XLEN-1:2] + interrupt_cause[XLEN-1-2:0]),2'b0}; //vectored
+	assign interrupt_vector = (interrupt_xtvec[0] == 0) ? {interrupt_xtvec[XLEN-1 : 2], 2'b0} : { (interrupt_xtvec[XLEN-1:2] + interrupt_cause[XLEN-1-2:0]),2'b0}; //vectored
+
+
 
 	PrivMode interrupt_mode;
 	assign interrupt_mode = M;
@@ -161,8 +186,11 @@ module csrunit (
 		end
 	end
 
+	Addr expt_xtvec;
+	assign expt_xtvec = (expt_mode == M) ? mtvec : stvec;
+
 	Addr expt_vector;
-	assign expt_vector = {mtvec[XLEN-1 : 2], 2'b0};
+	assign expt_vector = {expt_xtvec[XLEN-1 : 2], 2'b0};
 
 	PrivMode expt_mode;
 	assign expt_mode = M;
@@ -218,6 +246,12 @@ module csrunit (
 			MEPC    : rdata = mepc;
 			MCAUSE  : rdata = mcause;
 			MTVAL   : rdata = mtval;
+			SSTATUS   : rdata = sstatus;
+			SCOUNTEREN : rdata = {{(XLEN - 32){1'b0}}, scounteren};
+			STVEC   : rdata = stvec;
+			SEPC    : rdata = sepc;
+			SCAUSE  : rdata = scause;
+			STVAL   : rdata = stval;
 			CYCLE   : rdata = mcycle;
 			TIME    : rdata = aclint.mtime;
 			INSTRET : rdata = minstret;
@@ -234,6 +268,12 @@ module csrunit (
 			MEPC     : wmask = MEPC_WMASK;
 			MCAUSE   : wmask = MCAUSE_WMASK;
 			MTVAL    : wmask = MTVAL_WMASK;
+			SSTATUS  : wmask = SSTATUS_WMASK;
+			SCOUNTEREN : wmask = SCOUNTEREN_WMASK;
+			STVEC : wmask = STVEC_WMASK;
+			SSCRATCH : wmask = SEPC_WMASK;
+			SCAUSE : wmask = SCAUSE_WMASK;
+			STVAL : wmask = STVAL_WMASK;
 			default       : wmask = '0;
 		endcase
 
@@ -257,11 +297,12 @@ module csrunit (
 		wdata = (wdata & wmask) | (rdata & ~wmask);
 	end
 
+	Addr xepc;
 
 	always_ff @(posedge clk or negedge rst) begin
 		if (!rst) begin
 			mode     <=  M;
-			mstatus  <=  MSTATUS_UXL;
+			mstatus  <=  MSTATUS_UXL | MSTATUS_SXL;
 			mtvec    <= '0;
 			mie      <= '0;
 			mcounteren <= '0;
@@ -270,28 +311,49 @@ module csrunit (
 			mepc     <= '0;
 			mcause   <= '0;
 			mtval    <= '0;
+			scounteren <= '0;
+			stvec <= '0;
+			sscratch <= '0;
+			sepc <= '0;
+			scause <= '0;
+			stval <= '0;
 		end else begin
 			mcycle += 1;
 			if (valid) begin
 				if (raise_trap) begin
 					if (raise_expt || raise_interrupt) begin
 						if (raise_expt)begin
-							mepc <= pc;
+							xepc = pc; //exception
 						end else if (raise_interrupt && is_wfi) begin
-							mepc = pc + 4;
+							xepc = pc + 4;
 						end else begin
-							mepc <= pc;
+							xepc = pc;
 						end
-						mcause <= trap_cause;
-						if(raise_expt) begin
-							mtval <= expt_value;
+						if (trap_mode_next == M) begin
+							mepc <= xepc;
+							mcause <= trap_cause;
+							if (raise_expt) begin
+								mtval <= expt_value;
+							end
+							//save mstatus.mie to mstatus.mpie
+							//and set mstatus.mie = 0
+							mstatus[7] <= mstatus[3];
+							mstatus[3] <= 0;
+							//save current priviledge level to mstatus.mpp
+							mstatus[12:11] <= mode;
+						end else begin
+							sepc <= xepc;
+							scause <= trap_cause;
+							if (raise_expt) begin
+								stval <= expt_value;
+							end
+							//save sstatus.sie to sstatus.spie
+							//and set sstatus.sie = 0
+							mstatus[5] <= mstatus[1];
+							mstatus[1] <= 0;
+							//save current privilege mode (S or U) to sstatus.spp
+							mstatus[8] <= mode[0];
 						end
-						//save mstatus.mie to mstatus.mipe
-						// and set mstatus.mie = 0
-						mstatus[7] <= mstatus[3];
-						mstatus[3] <= 0;
-						// save current priviledge level to mstatus.mpp
-						mstatus[12:11] <= mode;
 					end if (trap_return) begin
 						//save mstatus.mie to mstatus.mipe
 						// and set mstatus.mie = 0
@@ -312,6 +374,13 @@ module csrunit (
 							MEPC     : mepc     <= wdata;
 							MCAUSE   : mcause   <= wdata;
 							MTVAL    : mtval    <= wdata;
+							SSTATUS  : mstatus  <= validate_mstatus(mstatus, wdata | mstatus & ~SSTATUS_WMASK);
+							SCOUNTEREN : scounteren <= wdata[31:0];
+							STVEC : stvec <= wdata;
+							SSCRATCH : sscratch <= wdata;
+							SEPC : sepc <= wdata;
+							SCAUSE : scause <= wdata;
+							STVAL : stval <= wdata;
 							default  : /* do nothing */ ;
 						endcase
 					end
@@ -327,8 +396,7 @@ module csrunit (
 		result = wdata;
 
 		// MPP: only M(11) or U(00) allowed
-		if (wdata[12:11] != M &&
-			wdata[12:11] != U)
+		if (wdata[12:11] == 2'b10)
 		begin
 			result[12:11] = mstatus[12:11];
 		end

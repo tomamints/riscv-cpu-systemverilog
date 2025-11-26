@@ -17,6 +17,7 @@ package eei;
 	localparam UIntX MACHINE_IMPLEMENTATION_ID = 1;
 
 	localparam UInt64 MSTATUS_UXL = 2 << 32;
+	localparam UInt64 MSTATUS_SXL = 2 << 34;
 
 	// memory bus data
 	localparam int MEMBUS_DATA_WIDTH = 64;
@@ -80,6 +81,19 @@ package eei;
 	} PrivMode;
 
 	typedef enum logic [11:0]{
+		// Supervisor Trap Setup
+        SSTATUS = 12'h100,
+        SIE = 12'h104,
+        STVEC = 12'h105,
+        SCOUNTEREN = 12'h106,
+        // Supervisor Trap Handling
+        SSCRATCH = 12'h140,
+        SEPC = 12'h141,
+        SCAUSE = 12'h142,
+        STVAL = 12'h143,
+        SIP = 12'h144,
+        // Supervisor Protection and Translation
+        SATP = 12'h180,
 		//Machine Infomation Registers
 		MIMPID  = 12'hf13,
 		MHARTID = 12'hf14,
