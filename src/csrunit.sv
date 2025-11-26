@@ -50,7 +50,10 @@ module csrunit (
 	assign is_wsc = ctrl.is_csr && ctrl.funct3[1:0] != 0;
 
 	logic is_mret;
-	assign is_mret = (inst_bits == 32'h10500073);
+	assign is_mret = (inst_bits == 32'h30200073);
+
+	logic is_sret;
+	assign is_sret = (inst_bits == 32'h10200073);
 
 	logic is_wfi;
 	assign is_wfi = (inst_bits == 32'h10500073);
@@ -70,19 +73,28 @@ module csrunit (
 	assign expt_csr_priv_violation = is_wsc && (csr_addr[9:8] > mode);
 
 	logic expt_zicntr_priv;
-	logic zicntr_denied;
-	assign zicntr_denied =
+	logic zicntr_denied_S;
+	assign zicntr_denied_S =
 		(csr_addr == CYCLE)   ? !mcounteren[0] :
 		(csr_addr == TIME)    ? !mcounteren[1] :
 		(csr_addr == INSTRET) ? !mcounteren[2] :
 										1'b0;
 
+	logic zicntr_denied_U =
+		(csr_addr == CYCLE)   ? !scounteren[0] :
+		(csr_addr == TIME)    ? !scounteren[1] :
+		(csr_addr == INSTRET) ? !scounteren[2] :
+										1'b0;
+
 	assign expt_zicntr_priv =
 		is_wsc &&
-		(mode <= S) &&
-		zicntr_denied;
+		(mode <= S &&
+		zicntr_denied_S ||
+		zicntr_denied_U);
 
-
+	logic expt_trap_return_priv;
+	assign expt_trap_return_priv = (is_mret && mode < M) || (is_sret && mode < S);
+	//attempt to execute trap return instruction in low privilege level
 
 	//CSR register create
 	UIntX misa;
@@ -120,6 +132,9 @@ module csrunit (
 
 	PrivMode mstatus_mpp;
 	assign mstatus_mpp = PrivMode'(mstatus[12:11]);
+
+	PrivMode mstatus_spp;
+	assign mstatus_spp = (mstatus[8]) ? S : M;
 
 	//mstatus bits
 	logic mstatus_mpie;
@@ -159,7 +174,7 @@ module csrunit (
 
 	//Exception
 	logic raise_expt;
-	assign raise_expt = valid && (expt_info.valid || expt_write_readonly_csr || expt_csr_priv_violation || expt_zicntr_priv);
+	assign raise_expt = valid && (expt_info.valid || expt_write_readonly_csr || expt_csr_priv_violation || expt_zicntr_priv || expt_trap_return_priv);
 	UIntX expt_cause ;
 	always_comb begin
 		if(expt_info.valid) begin
@@ -169,6 +184,8 @@ module csrunit (
 		end else if (expt_csr_priv_violation) begin
 			expt_cause = ILLEGAL_INSTRUCTION;
 		end else if (expt_zicntr_priv) begin
+			expt_cause = ILLEGAL_INSTRUCTION;
+		end else if (expt_trap_return_priv) begin
 			expt_cause = ILLEGAL_INSTRUCTION;
 		end else begin
 			expt_cause = '0;
@@ -196,9 +213,12 @@ module csrunit (
 	assign expt_mode = M;
 
 	// Trap Return
-	assign trap_return = valid && is_mret && !raise_expt && !raise_interrupt;
+	assign trap_return = valid && (is_mret || is_sret) && !raise_expt && !raise_interrupt;
 	PrivMode trap_return_mode;
-	assign trap_return_mode = mstatus_mpp;
+	assign trap_return_mode = (is_mret) ? mstatus_mpp : mstatus_spp;
+	Addr trap_return_vector ;
+	assign trap_return_vector = (is_mret) ? mepc : sepc;
+
 
 	//Trap
 	assign raise_trap  = raise_expt || raise_interrupt || trap_return;
@@ -212,7 +232,7 @@ module csrunit (
 	assign trap_vector =
 		raise_expt      ? expt_vector :
 		raise_interrupt ? interrupt_vector :
-		trap_return     ? mepc :
+		trap_return     ? trap_return_vector :
 						UIntX'(0);
 
 	PrivMode trap_mode_next;
