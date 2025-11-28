@@ -23,16 +23,20 @@ module csrunit (
 	aclint_if.slave aclint
 );
 
-	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0020_19aa) ;
+	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0060_19aa) ;
 	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
+	localparam UIntX MEDELEG_WMASK  = 'hffff_ffff_ffff_f7ff;
+	localparam UIntX MIDELEG_WMASK  = UIntX'('h0000_0000_0000_0222);
 	localparam UIntX MCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
 	localparam UIntX MSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MEPC_WMASK   = 'hffff_ffff_ffff_fffe;
 	localparam UIntX MCAUSE_WMASK = 'hffff_ffff_ffff_ffff;
 	localparam UIntX MTVAL_WMASK  = 'hffff_ffff_ffff_ffff;
-	localparam UIntX MIE_WMASK  = UIntX'('h0000_0000_0000_0088);
+	localparam UIntX MIP_WMASK  = UIntX'('h0000_0000_0000_0222);
+	localparam UIntX MIE_WMASK  = UIntX'('h0000_0000_0000_02aa);
 
 	localparam UIntX SSTATUS_WMASK  = UIntX'('h0000_0000_0000_0122);
+	localparam UIntX SIE_WMASK      = UIntX'('h0000_0000_0000_0222);
 	localparam UIntX SCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
 	localparam UIntX STVEC_WMASK  = 'hffff_ffff_ffff_fffd;
 	localparam UIntX SSCRATCH_WMASK = 'hffff_ffff_ffff_ffff;
@@ -93,7 +97,7 @@ module csrunit (
 		zicntr_denied_U);
 
 	logic expt_trap_return_priv;
-	assign expt_trap_return_priv = (is_mret && mode < M) || (is_sret && mode < S);
+	assign expt_trap_return_priv = (is_mret && mode < M) || (is_sret && mode < S || (mode == S && mstatus_tsr));
 	//attempt to execute trap return instruction in low privilege level
 
 	//CSR register create
@@ -109,11 +113,11 @@ module csrunit (
 	};
 
 	UIntX mhartid = 0;
-	UIntX mstatus, mtvec, mie, mip, mscratch, mepc, mcause, mtval;
+	UIntX mstatus, mtvec, mideleg, mie, mip, mip_reg, mscratch, mepc, mcause, mtval;
 	UInt32 mcounteren;
-	UInt64 mcycle;
+	UInt64 mcycle, medeleg;
 
-	assign mip = {
+	assign mip = mip_reg | {
 		{(XLEN - 12){1'b0}},
 		1'b0, // MEIP
 		1'b0, // 0
@@ -130,47 +134,78 @@ module csrunit (
 	};
 
 
+
+	//mstatus bits
+
+	logic mstatus_tsr;
+	assign mstatus_tsr = mstatus[22];
+
 	PrivMode mstatus_mpp;
 	assign mstatus_mpp = PrivMode'(mstatus[12:11]);
 
 	PrivMode mstatus_spp;
-	assign mstatus_spp = (mstatus[8]) ? S : M;
+	assign mstatus_spp = (mstatus[8]) ? S : U;
 
-	//mstatus bits
 	logic mstatus_mpie;
 	assign mstatus_mpie = mstatus[7];
 
 	logic mstatus_mie;
 	assign mstatus_mie = mstatus[3];
 
+	logic mstatus_sie;
+	assign mstatus_sie = mstatus[1];
+
 	//Supevisor mode CSR
-	UIntX  sstatus , stvec, sscratch, sepc, scause, stval;
+	UIntX  sstatus , stvec, sscratch, sip, sie, sepc, scause, stval;
 	assign sstatus = mstatus & SSTATUS_RMASK;
 	UInt32 scounteren;
 
+	assign sip = mip & mideleg;
 
-	//Interrupt
-	UIntX interrupt_pending;
-	assign interrupt_pending = mip & mie;
-	logic raise_interrupt;
-	assign raise_interrupt =  valid && can_intr && (mode != M || mstatus_mie) && interrupt_pending != 0;
+	//Interrupt to M-mode
+	UIntX interrupt_pending_mmode;
+	assign interrupt_pending_mmode = mip & mie & ~mideleg;
+	logic raise_interrupt_mmode;
+	assign raise_interrupt_mmode = (mode != M || mstatus_mie) && interrupt_pending_mmode != 0;
 
-	UIntX interrupt_cause;
-	assign interrupt_cause =
-		interrupt_pending[3] ? MACHINE_SOFTWARE_INTERRUPT :
-		interrupt_pending[7] ? MACHINE_TIMER_INTERRUPT :
+	UIntX interrupt_cause_mmode;
+	assign interrupt_cause_mmode =
+		interrupt_pending_mmode[3] ? MACHINE_SOFTWARE_INTERRUPT :
+		interrupt_pending_mmode[7] ? MACHINE_TIMER_INTERRUPT :
+		interrupt_pending_mmode[9] ? SUPERVISOR_EXTERNAL_INTERRUPT :
+		interrupt_pending_mmode[1] ? SUPERVISOR_SOFTWARE_INTERRUPT :
+		interrupt_pending_mmode[5] ? SUPERVISOR_TIMER_INTERRUPT :
 							UIntX'(0);
 
+	//Interrupt to S-mode
+	UIntX interrupt_pending_smode;
+	assign interrupt_pending_smode = sip & sie;
+	logic raise_interrupt_smode;
+	assign raise_interrupt_smode = (mode < S || (mode == S && mstatus_sie)) && interrupt_pending_smode != 0;
+
+	UIntX interrupt_cause_smode;
+	assign interrupt_cause_smode =
+		interrupt_pending_smode[9] ? SUPERVISOR_EXTERNAL_INTERRUPT :
+		interrupt_pending_smode[1] ? SUPERVISOR_SOFTWARE_INTERRUPT :
+		interrupt_pending_smode[5] ? SUPERVISOR_TIMER_INTERRUPT :
+							UIntX'(0);
+
+
+		//Interrupt
+	logic raise_interrupt;
+	assign raise_interrupt = valid && can_intr && (raise_interrupt_mmode || raise_interrupt_smode);
+
+	UIntX interrupt_cause;
+	assign interrupt_cause = (raise_interrupt_mmode) ? interrupt_cause_mmode : interrupt_cause_smode;
+
 	Addr interrupt_xtvec;
-	assign interrupt_xtvec = (interrupt_mode == M) ? mtvec : stvec;
+	assign interrupt_xtvec = (interrupt_mode == M) ? mtvec: stvec;
 
 	Addr interrupt_vector;
 	assign interrupt_vector = (interrupt_xtvec[0] == 0) ? {interrupt_xtvec[XLEN-1 : 2], 2'b0} : { (interrupt_xtvec[XLEN-1:2] + interrupt_cause[XLEN-1-2:0]),2'b0}; //vectored
 
-
-
 	PrivMode interrupt_mode;
-	assign interrupt_mode = M;
+	assign interrupt_mode = (raise_interrupt_mmode) ? M : S ;
 
 	//Exception
 	logic raise_expt;
@@ -210,7 +245,7 @@ module csrunit (
 	assign expt_vector = {expt_xtvec[XLEN-1 : 2], 2'b0};
 
 	PrivMode expt_mode;
-	assign expt_mode = M;
+	assign expt_mode = (mode == M || !medeleg[expt_cause[5:0]]) ? M : S;
 
 	// Trap Return
 	assign trap_return = valid && (is_mret || is_sret) && !raise_expt && !raise_interrupt;
@@ -257,6 +292,8 @@ module csrunit (
 			MHARTID : rdata = mhartid;
 			MSTATUS : rdata = mstatus;
 			MTVEC   : rdata = mtvec;
+			MEDELEG   : rdata = medeleg;
+			MIDELEG   : rdata = mideleg;
 			MIP   : rdata = mip;
 			MIE   : rdata = mie;
 			MCOUNTEREN   : rdata = {{(XLEN-32){1'b0}},mcounteren};
@@ -272,6 +309,8 @@ module csrunit (
 			SEPC    : rdata = sepc;
 			SCAUSE  : rdata = scause;
 			STVAL   : rdata = stval;
+			SIP     : rdata = sip;
+			SIE     : rdata = sie & mideleg;
 			CYCLE   : rdata = mcycle;
 			TIME    : rdata = aclint.mtime;
 			INSTRET : rdata = minstret;
@@ -282,6 +321,9 @@ module csrunit (
 		case (csr_addr)
 			MSTATUS  : wmask = MSTATUS_WMASK;
 			MTVEC    : wmask = MTVEC_WMASK;
+			MEDELEG    : wmask = MEDELEG_WMASK;
+			MIDELEG    : wmask = MIDELEG_WMASK;
+			MIP      : wmask = MIP_WMASK;
 			MIE      : wmask = MIE_WMASK;
 			MCOUNTEREN : wmask = MCOUNTEREN_WMASK;
 			MSCRATCH : wmask = MSCRATCH_WMASK;
@@ -291,9 +333,10 @@ module csrunit (
 			SSTATUS  : wmask = SSTATUS_WMASK;
 			SCOUNTEREN : wmask = SCOUNTEREN_WMASK;
 			STVEC : wmask = STVEC_WMASK;
-			SSCRATCH : wmask = SEPC_WMASK;
+			SSCRATCH : wmask = SSCRATCH_WMASK;
 			SCAUSE : wmask = SCAUSE_WMASK;
 			STVAL : wmask = STVAL_WMASK;
+			SIE : wmask = SIE_WMASK & mideleg;
 			default       : wmask = '0;
 		endcase
 
@@ -317,6 +360,9 @@ module csrunit (
 		wdata = (wdata & wmask) | (rdata & ~wmask);
 	end
 
+	UIntX setssip;
+	assign setssip = {{(XLEN - 2){1'b0}}, aclint.setssip, 1'b0 };
+
 	Addr xepc;
 
 	always_ff @(posedge clk or negedge rst) begin
@@ -324,7 +370,10 @@ module csrunit (
 			mode     <=  M;
 			mstatus  <=  MSTATUS_UXL | MSTATUS_SXL;
 			mtvec    <= '0;
+			medeleg    <= '0;
+			mideleg    <= '0;
 			mie      <= '0;
+			mip_reg  <= '0;
 			mcounteren <= '0;
 			mscratch <= '0;
 			mcycle   <= '0;
@@ -337,8 +386,10 @@ module csrunit (
 			sepc <= '0;
 			scause <= '0;
 			stval <= '0;
+			sie <= '0;
 		end else begin
 			mcycle += 1;
+			mip_reg |= setssip;
 			if (valid) begin
 				if (raise_trap) begin
 					if (raise_expt || raise_interrupt) begin
@@ -374,13 +425,22 @@ module csrunit (
 							//save current privilege mode (S or U) to sstatus.spp
 							mstatus[8] <= mode[0];
 						end
-					end if (trap_return) begin
-						//save mstatus.mie to mstatus.mipe
-						// and set mstatus.mie = 0
-						mstatus[3] <= mstatus[7];
-						mstatus[7] <= 0;
-						// set mstatus.mpp = U (least priviledge level)
-						mstatus[12:11] <= U;
+					end else if (trap_return) begin
+						if (is_mret) begin
+							//save mstatus.mie to mstatus.mipe
+							// and set mstatus.mie = 0
+							mstatus[3] <= mstatus[7];
+							mstatus[7] <= 0;
+							// set mstatus.mpp = U (least priviledge level)
+							mstatus[12:11] <= U;
+						end else if (is_sret) begin
+							//set sstatus.sie = sstatus.spie
+							//    sstatus.spie = 0
+							mstatus[1] <= mstatus[5];
+							mstatus[5] <= 0;
+							//set sstatus.spp <= U
+							mstatus[8] <= 0;
+						end
 					end
 					mode <= trap_mode_next;
 				end else begin
@@ -388,7 +448,10 @@ module csrunit (
 						case (csr_addr)
 							MSTATUS  : mstatus  <= validate_mstatus(mstatus, wdata);
 							MTVEC    : mtvec    <= wdata;
-							MIE      : mie      <= wdata;
+							MEDELEG    : medeleg    <= wdata;
+							MIDELEG   : mideleg    <= wdata;
+							MIP      : mip_reg    <= (wdata & MIP_WMASK) | setssip;
+							MIE      : mie      <= wdata & MIE_WMASK;
 							MCOUNTEREN : mcounteren <= wdata[31:0];
 							MSCRATCH : mscratch <= wdata;
 							MEPC     : mepc     <= wdata;
@@ -401,6 +464,7 @@ module csrunit (
 							SEPC : sepc <= wdata;
 							SCAUSE : scause <= wdata;
 							STVAL : stval <= wdata;
+							SIE : sie <= wdata;
 							default  : /* do nothing */ ;
 						endcase
 					end

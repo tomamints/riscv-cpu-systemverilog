@@ -18,6 +18,13 @@ module aclint_memory (
         aclint.mtime = mtime;
     end
 
+    always_comb begin
+        aclint.setssip = 0;
+        if (membus.valid && membus.wen && membus.addr == MMAP_ACLINT_SETSSIP) begin
+            aclint.setssip = membus.wdata[0];
+        end
+    end
+
     assign membus.ready = 1;
 
     Addr addr;
