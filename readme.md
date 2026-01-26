@@ -30,3 +30,6 @@ DBG_ADDR=0x40000000 ./obj_dir/sim ~/risc-v-cpu/core/test/bootrom.hex core/test/d
 
 Hello,worldを出力させるテスト
 DBG_ADDR=0x40000000 ./obj_dir/sim ~/risc-v-cpu/core/test/bootrom.hex core/test/test.bin.hex
+
+riscv-test
+python3.10 core/test/test.py -r obj_dir/sim ~/riscv/new/share/riscv-tests/isa rv32ui-p
