@@ -22,3 +22,11 @@
 | Linux起動対応 | MMU / 仮想記憶 / SoC統合 | 予定 |
 
 ※ 実装はRISC-V仕様書と教材を突き合わせながら段階的に拡張しています。
+
+
+##test code
+inputに対して、文字を一つずらしてoutputさせるテスト
+DBG_ADDR=0x40000000 ./obj_dir/sim ~/risc-v-cpu/core/test/bootrom.hex core/test/debug_input.bin.hex
+
+Hello,worldを出力させるテスト
+DBG_ADDR=0x40000000 ./obj_dir/sim ~/risc-v-cpu/core/test/bootrom.hex core/test/test.bin.hex

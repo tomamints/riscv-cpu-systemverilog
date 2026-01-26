@@ -20,9 +20,10 @@ module inst_decoder(
 	UIntX imm_u = {{(XLEN - $bits(imm_u_g) - 12){bits[31]}} , imm_u_g, 12'b0};
 	UIntX imm_j = {{(XLEN - $bits(imm_j_g) - 1){bits[31]}} , imm_j_g, 1'b0};
 
-	logic[6:0] op = bits[6:0];
+	logic[6:0] op = bits[6:0]; // assign op = bits[6:0]と同じ理解
 	logic[6:0] f7 = bits[31:25];
 	logic[2:0] f3 = bits[14:12];
+	//bitsで送られてきた内容をそれぞれ判定用の変数に割り当てる
 
 	localparam T = 1'b1;
 	localparam F = 1'b0;
