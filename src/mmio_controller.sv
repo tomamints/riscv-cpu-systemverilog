@@ -58,7 +58,7 @@ module mmio_controller (
     function Device get_device (input Addr addr);
         if (DBG_ADDR <= addr && addr <= DBG_ADDR + 64'd7) return DEBUG;
         if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ROM_END)) return ROM;
-        if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ACLINT_END)) return ACLINT;
+        if ((MMAP_ACLINT_BEGIN <= addr) && (addr <= MMAP_ACLINT_END)) return ACLINT;
         if (addr >= MMAP_RAM_BEGIN) return RAM;
         return UNKNOWN;
     endfunction

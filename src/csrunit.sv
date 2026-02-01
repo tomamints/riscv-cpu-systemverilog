@@ -23,8 +23,9 @@ module csrunit (
 	aclint_if.slave aclint
 );
 
+//WMASK determines which bit can change or not. WARL can write anything but read legal.
 	localparam UIntX MSTATUS_WMASK = UIntX'('h0000_0000_0060_19aa) ;
-	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd;
+	localparam UIntX MTVEC_WMASK  = 'hffff_ffff_ffff_fffd; //MTVECは[1:0]はMODE設定
 	localparam UIntX MEDELEG_WMASK  = 'hffff_ffff_ffff_f7ff;
 	localparam UIntX MIDELEG_WMASK  = UIntX'('h0000_0000_0000_0222);
 	localparam UIntX MCOUNTEREN_WMASK  = UIntX'('h0000_0000_0000_0007);
@@ -445,7 +446,7 @@ module csrunit (
 					mode <= trap_mode_next;
 				end else begin
 					if (is_wsc) begin
-						case (csr_addr)
+						case (csr_addr) //これらはそれぞれのCSRレジスタにwdataを入れている。
 							MSTATUS  : mstatus  <= validate_mstatus(mstatus, wdata);
 							MTVEC    : mtvec    <= wdata;
 							MEDELEG    : medeleg    <= wdata;
