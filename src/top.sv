@@ -93,11 +93,14 @@ module core_top #(
                     logic [7:0] ch;
                     ch = dbg_membus.wdata[7:0];
 
+/*
                     if (ch == 8'h00) begin
                         $display("[DEBUG-IO] input = NONE");
                     end else begin
                         $display("[DEBUG-IO] input = '%c' (0x%02h)", ch, ch);
                     end
+                    */
+
                     // =========================
 
                     $write("%c", dbg_membus.wdata[7:0]);

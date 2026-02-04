@@ -82,4 +82,5 @@ module ram_arbiter_cpu_prio (
             endcase
         end
     end
+
 endmodule
