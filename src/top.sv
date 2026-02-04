@@ -132,7 +132,7 @@ module core_top #(
     always_ff @(posedge clk or negedge rst) begin
         if (!rst) begin
             memarb_last_i     <= 1'b0;
-        end else if (mmio_membus.ready) begin
+        end else if (mmio_membus.ready && mmio_membus.valid) begin
             memarb_last_i     <= !d_membus.valid;
         end
     end
@@ -220,6 +220,7 @@ module core_top #(
     end
 
 
+
     // mmio <> ROM (read-only)
     always_comb begin
         rom_membus.valid       = mmio_rom_membus.valid;
@@ -298,6 +299,7 @@ module core_top #(
         .dma (dma_ram_membus),    // DMA側（DMAのRAM master）
         .out (arb_ram_membus)     // 統合後
     );
+
 
 
     inst_fetcher fethcer (

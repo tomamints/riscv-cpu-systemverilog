@@ -70,8 +70,8 @@ module ram_arbiter_cpu_prio (
             unique case (astate)
                 A_IDLE: begin
                     if (out_fire) begin
-                        astate <= A_WAIT;          // ★ read/write問わず outstanding
                         last_is_cpu <= grant_cpu;  // この要求の発行元を保持
+                        astate <= A_WAIT; // ★ read/write問わず outstanding
                     end
                 end
                 A_WAIT: begin
