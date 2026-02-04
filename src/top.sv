@@ -33,10 +33,15 @@ module core_top #(
     Membus mmio_membus();
     Membus mmio_ram_membus();
     Membus mmio_rom_membus();
+    Membus mmio_dma_membus();
     Membus dbg_membus();
     Membus aclint_membus();
+    Membus dma_ram_membus();
 
     aclint_if aclint_core_bus();
+
+    //arbiter出力用のバズ
+    Membus arb_ram_membus();
 
 
     // 物理メモリIF（word index）
@@ -49,6 +54,7 @@ module core_top #(
         .DATA_WIDTH(ROM_DATA_WIDTH),
         .ADDR_WIDTH(ROM_ADDR_WIDTH)
     ) rom_membus();
+
 
     // お手本（Veryl）命名に統一
 
@@ -184,6 +190,7 @@ module core_top #(
         end
     end
 
+/*
     // mmio <> RAM
     always_comb begin
         ram_membus.valid       = mmio_ram_membus.valid;
@@ -194,6 +201,22 @@ module core_top #(
         ram_membus.wmask       = mmio_ram_membus.wmask;
         mmio_ram_membus.rvalid = ram_membus.rvalid;
         mmio_ram_membus.rdata  = ram_membus.rdata;
+    end
+*/
+
+
+    // arbiter後のMembus → RAM(=membus_if) 変換
+    always_comb begin
+        ram_membus.valid = arb_ram_membus.valid;
+        arb_ram_membus.ready = ram_membus.ready;
+
+        ram_membus.addr  = addr_to_ramaddr(arb_ram_membus.addr);
+        ram_membus.wen   = arb_ram_membus.wen;
+        ram_membus.wdata = arb_ram_membus.wdata;
+        ram_membus.wmask = arb_ram_membus.wmask;
+
+        arb_ram_membus.rvalid = ram_membus.rvalid;
+        arb_ram_membus.rdata  = ram_membus.rdata;
     end
 
 
@@ -250,7 +273,8 @@ module core_top #(
         .ram_membus  (mmio_ram_membus),
         .rom_membus  (mmio_rom_membus),
         .dbg_membus  (dbg_membus),
-        .aclint_membus  (aclint_membus)
+        .aclint_membus  (aclint_membus),
+        .dma_membus  (mmio_dma_membus)
     );
 
     amounit amou (
@@ -259,6 +283,22 @@ module core_top #(
         .slave  (d_membus_core),
         .master (d_membus)
     );
+
+    dma u_dma(
+        .clk (clk),
+        .rst (rst),
+        .mmio(mmio_dma_membus),
+        .ram(dma_ram_membus)
+    );
+
+    ram_arbiter_cpu_prio ram_arb (
+        .clk (clk),
+        .rst (rst),
+        .cpu (mmio_ram_membus),   // CPU側（MMIO経由RAM）
+        .dma (dma_ram_membus),    // DMA側（DMAのRAM master）
+        .out (arb_ram_membus)     // 統合後
+    );
+
 
     inst_fetcher fethcer (
         .clk     (clk),

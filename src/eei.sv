@@ -42,13 +42,14 @@ package eei;
 	localparam Addr MMAP_ACLINT_END = MMAP_ACLINT_BEGIN + Addr'('hbfff);
 
 	//DMA
-	localparam Addr MMAP_DMA_BEGIN  = Addr'('h300_0000);
-	localparam Addr MMAP_DMA_CTRL   = Addr'('h00);  // start, clear_done, irq_en
-	localparam Addr MMAP_DMA_SRC    = Addr'('h04);
-	localparam Addr MMAP_DMA_DST    = Addr'('h08);
-	localparam Addr MMAP_DMA_LEN    = Addr'('h0C);
-	localparam Addr MMAP_DMA_STATUS = Addr'('h10);  // busy, done, err(optional)
+	localparam Addr MMAP_DMA_BEGIN  = Addr'('h3000_0000);
+	localparam Addr MMAP_DMA_CTRL   = Addr'('h00); // 32-bitでも64-bitでもOK
+	localparam Addr MMAP_DMA_STATUS = Addr'('h08); // ここから8バイト刻み
+	localparam Addr MMAP_DMA_SRC    = Addr'('h10); // 64-bit
+	localparam Addr MMAP_DMA_DST    = Addr'('h18); // 64-bit
+	localparam Addr MMAP_DMA_LEN    = Addr'('h20); // 32-bit (or 64)
 	localparam Addr MMAP_DMA_END    = MMAP_DMA_BEGIN + Addr'('h0FFF);
+
 
 	// reset vector
 	localparam Addr INITIAL_PC = MMAP_ROM_BEGIN;

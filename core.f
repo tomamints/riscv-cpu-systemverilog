@@ -23,6 +23,8 @@ src/muldivunit.sv
 src/memunit.sv
 src/amounit.sv
 src/mmio_controller.sv
+src/dma.sv
+src/ram_arbiter.sv
 src/inst_fetcher.sv
 src/inst_decoder.sv
 src/corectrl.sv

@@ -17,15 +17,17 @@ module mmio_controller (
     Membus.master ram_membus,
     Membus.master rom_membus,
     Membus.master dbg_membus,
-    Membus.master aclint_membus
+    Membus.master aclint_membus,
+    Membus.master dma_membus
 );
 
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         UNKNOWN,
         RAM,
         ROM,
         DEBUG,
-        ACLINT
+        ACLINT,
+        DMA
     } Device;
 
     // outstanding リクエスト保持
@@ -53,12 +55,14 @@ module mmio_controller (
         reset_membus_master(rom_membus.valid, rom_membus.addr, rom_membus.wen, rom_membus.wdata, rom_membus.wmask);
         reset_membus_master(dbg_membus.valid, dbg_membus.addr, dbg_membus.wen, dbg_membus.wdata, dbg_membus.wmask);
         reset_membus_master(aclint_membus.valid, aclint_membus.addr, aclint_membus.wen, aclint_membus.wdata, aclint_membus.wmask);
+        reset_membus_master(dma_membus.valid, dma_membus.addr, dma_membus.wen, dma_membus.wdata, dma_membus.wmask);
     endfunction
 
     function Device get_device (input Addr addr);
         if (DBG_ADDR <= addr && addr <= DBG_ADDR + 64'd7) return DEBUG;
         if ((MMAP_ROM_BEGIN <= addr) && (addr <= MMAP_ROM_END)) return ROM;
         if ((MMAP_ACLINT_BEGIN <= addr) && (addr <= MMAP_ACLINT_END)) return ACLINT;
+        if ((MMAP_DMA_BEGIN <= addr) && (addr <= MMAP_DMA_END)) return DMA;
         if (addr >= MMAP_RAM_BEGIN) return RAM;
         return UNKNOWN;
     endfunction
@@ -99,6 +103,13 @@ module mmio_controller (
                 aclint_membus.wmask = wmask;
                 aclint_membus.addr  = addr - MMAP_ACLINT_BEGIN;
             end
+            DMA: begin
+                dma_membus.valid = valid;
+                dma_membus.wen   = wen;
+                dma_membus.wdata = wdata;
+                dma_membus.wmask = wmask;
+                dma_membus.addr  = addr - MMAP_DMA_BEGIN;
+            end
             default: ; // UNKNOWN は捨てる
         endcase
     endfunction
@@ -109,6 +120,7 @@ module mmio_controller (
             ROM: return rom_membus.ready;
             DEBUG: return dbg_membus.ready;
             ACLINT: return aclint_membus.ready;
+            DMA: return dma_membus.ready;
             default: return 1'b0;
         endcase
     endfunction
@@ -119,6 +131,7 @@ module mmio_controller (
             ROM: return rom_membus.rvalid;
             DEBUG: return dbg_membus.rvalid;
             ACLINT: return aclint_membus.rvalid;
+            DMA: return dma_membus.rvalid;
             default: return 1'b0;
         endcase
     endfunction
@@ -147,6 +160,10 @@ module mmio_controller (
             ACLINT: begin
                 rvalid = aclint_membus.rvalid;
                 rdata  = aclint_membus.rdata;
+            end
+            DMA: begin
+                rvalid = dma_membus.rvalid;
+                rdata  = dma_membus.rdata;
             end
             default: ; // UNKNOWN
         endcase
@@ -237,7 +254,7 @@ module mmio_controller (
                     if (get_device_rvalid(last_device)) begin
                         req_saved.valid <= req_core.ready && req_core.valid;
                         if (req_core.ready && req_core.valid) begin
-                            last_device  <= get_device(req_core.addr);
+                            last_device  <= get_device(req_core.addr); //アドレスによってデバイス名を検知
                             is_requested <= get_device_ready(last_device);
                             // reqを保存
                             req_saved.addr  <= req_core.addr;
